@@ -1,0 +1,36 @@
+{
+    admin off
+    http_port 80
+    https_port 8443
+    auto_https disable_redirects
+    log default {
+        exclude http.log.error
+    }
+    servers {
+        protocols h1 h2
+        timeouts {
+            read_header 10s
+            read_body 30s
+            write 30s
+            idle 30s
+        }
+    }
+}
+
+https://calendar.example.com:8443 {
+    tls {
+        issuer acme {
+            dir https://acme-v02.api.letsencrypt.org/directory
+            disable_tlsalpn_challenge
+        }
+    }
+    request_body {
+        max_size 2MB
+    }
+    reverse_proxy 127.0.0.1:18443 {
+        transport http {
+            max_conns_per_host 4
+            response_header_timeout 25s
+        }
+    }
+}

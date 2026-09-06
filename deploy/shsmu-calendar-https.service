@@ -1,0 +1,30 @@
+[Unit]
+Description=Dedicated SHSMU calendar HTTPS on 8443
+After=network-online.target shsmu-calendar.service
+Wants=network-online.target shsmu-calendar.service
+
+[Service]
+Type=simple
+User=shsmu-calendar
+Group=shsmu-calendar
+Environment=HOME=/var/lib/shsmu-calendar/tls
+Environment=XDG_DATA_HOME=/var/lib/shsmu-calendar/tls
+Environment=XDG_CONFIG_HOME=/var/lib/shsmu-calendar/tls
+ExecStart=/opt/shsmu-calendar/caddy run --config /etc/shsmu-calendar/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=5
+UMask=0077
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/shsmu-calendar/tls
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=160M
+CPUQuota=30%
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,24 @@
+[Unit]
+Description=Private SHSMU calendar backend
+After=network.target
+
+[Service]
+Type=simple
+User=shsmu-calendar
+Group=shsmu-calendar
+ExecStart=/usr/bin/python3 /opt/shsmu-calendar/webcal_server.py --config /etc/shsmu-calendar/auth.json --data /var/lib/shsmu-calendar/feed
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/shsmu-calendar/feed
+RestrictAddressFamilies=AF_INET AF_UNIX
+MemoryMax=96M
+CPUQuota=20%
+TasksMax=32
+
+[Install]
+WantedBy=multi-user.target

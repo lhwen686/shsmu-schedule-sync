@@ -1,0 +1,30 @@
+# Personal timetable data and authentication never belong in Git.
+data/
+output/
+local/
+state/
+.auth/
+*profile*/
+*session*
+*cookie*
+*token*
+*secret*
+.env
+.env.*
+config.local.json
+*.har
+*.log
+*.tmp
+*.bak
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+node_modules/
+build/
+dist/
+*.egg-info/
+
+# Browser downloads must remain private even in the repository root.
+shsmu-capture-*.json
+shsmu-diagnostic-*.json

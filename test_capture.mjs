@@ -1,0 +1,110 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import vm from 'node:vm';
+import {webcrypto} from 'node:crypto';
+import {collectSchedule} from './browser_capture.mjs';
+
+const config={semester:'2026-2027:1',start:'2026-09-07',end_exclusive:'2027-01-18'};
+const row={ID:12,Curriculum:'测试课',CurriculumID:99,CSID:100,XXKMID:null,MCSID:'11,12',
+  CurriculumType:'必修课',Start:'2026-09-07T08:00:00',End:'2026-09-07T09:30:00',ClassroomAcademy:'测试楼',AllDay:false};
+const detail={ID:2001,DetailID:1001,TeachingCalendarID:3000,CurriculumID:99,CurriculumScheduleIDs:'|11||12|',
+  ClassTime:'2026-09-07T00:00:00',Teacher:'测试教师',Tel:'must-be-omitted',TeacherAccount:'must-be-omitted',Content:'测试内容',IsDel:false};
+const row2={...row,ID:22,MCSID:'21,22',Start:'2026-09-08T10:00:00',End:'2026-09-08T11:30:00'};
+const detail2={...detail,ID:2002,DetailID:1002,CurriculumScheduleIDs:'|21||22|',ClassTime:'2026-09-08T00:00:00',Teacher:'第二位教师'};
+function response(path,params) {
+  if(path==='/Home/GetCurriculumTable')return {Title:params.Start==='2026-09-07'?'上海交通大学 2026-2027 学年 第1 学期':null,List:params.Start==='2026-09-07'?[row,row2]:[],List2:null,StuExam:null};
+  if(path==='/Home/GetCalendarTable') {
+    assert(['11,12','21,22'].includes(params.MCSID),'must request each event exactly as the page does');
+    return params.MCSID==='11,12'?[detail]:[detail2];
+  }
+  throw new Error('Unexpected test endpoint');
+}
+const record=await collectSchedule(config,{fetchJSON:async(p,q)=>response(p,q),accountKey:async()=> 'a'.repeat(64),saveCapture:async()=>{},status:()=>{}});
+assert.equal(record.responses.length,7);
+assert.equal(record.responses[5].response[0].Tel,undefined);
+assert.equal(record.responses[5].response[0].Teacher,'测试教师');
+assert.equal(record.responses[6].response[0].Teacher,'第二位教师');
+await assert.rejects(()=>collectSchedule(config,{fetchJSON:async()=>{throw new Error('expired');},accountKey:async()=> 'a'.repeat(64),saveCapture:async()=>assert.fail('partial download'),status:()=>{}}));
+for (const title of [null,'2026-2027 学年 第2 学期']) {
+  await assert.rejects(()=>collectSchedule(config,{fetchJSON:async()=>({Title:title,List:[row]}),accountKey:async()=> 'a'.repeat(64),saveCapture:async()=>assert.fail('invalid term download'),status:()=>{}}),/返回学期/);
+}
+
+const html=await fs.readFile(new URL('./chrome-bookmark.html',import.meta.url),'utf8');
+const href=html.match(/class="bookmark" href="([^"]+)"/)[1].replaceAll('&amp;','&').replaceAll('&#x27;',"'");
+const script=decodeURIComponent(href.slice('javascript:'.length));
+new vm.Script(script);
+async function executeBookmark(contentType, malformed=false, redirect=false, resume=false, wrongPage=false, changeAccount=false) {
+const blobs=[],panels=[],calls=[];
+let failures=resume?3:0;
+function element() {
+  let value='';
+  return {dataset:{},style:{},children:[],
+    get textContent(){return value;},
+    set textContent(text){value=text;this.children=[];},
+    append(child){this.children.push(child);},
+    click(){return this.onclick?.();},remove(){}};
+}
+class TestURL extends URL {static createObjectURL(b){blobs.push(b);return 'blob:test';} static revokeObjectURL(){}}
+const sandbox={location:{origin:'https://jwstu.shsmu.edu.cn',pathname:wrongPage?'/Home/Timetable':'/Home'},URL:TestURL,URLSearchParams,TextEncoder,Blob,crypto:webcrypto,
+  AbortSignal,Date,Map,Set,Promise,Error,JSON,Number,String,Array,Object,alert:()=>assert.fail('unexpected alert'),
+  setTimeout:fn=>{fn();return 1;},
+  document:{getElementById:()=>null,body:{innerText:'学号： 000000000001\n我的课表',append:el=>panels.push(el)},createElement:element},
+  DOMParser:class {parseFromString(){return {body:{textContent:'学号： 000000000001\n我的课表'}};}},
+  fetch:async input=>{
+    const url=new URL(input),path=url.pathname;
+    calls.push({path,params:Object.fromEntries(url.searchParams)});
+    if(url.searchParams.get('MCSID')==='21,22'&&failures-->0)throw new TypeError('Failed to fetch');
+    return {ok:true,status:200,type:'basic',url:redirect&&path!=='/Home'?'https://auth2.shsmu.edu.cn/cas/login':String(url),headers:{get:()=>contentType},text:async()=>path==='/Home'?'<html>synthetic account page</html>':malformed?'<html>Login required</html>':JSON.stringify(response(path,Object.fromEntries(url.searchParams)))};
+  }
+};
+vm.createContext(sandbox);
+await vm.runInContext(script.replace(/^void/,''),sandbox);
+if(wrongPage) {
+  assert.equal(calls.length,0,'guide to the normal homepage without subrequesting it');
+  assert.equal(blobs.length,0);
+  assert(panels[0].children.some(child=>child.href==='https://jwstu.shsmu.edu.cn/Home'));
+  return;
+}
+if(malformed||redirect||resume) {
+  assert.equal(blobs.length,1,'failure produces a diagnostic, never a complete capture');
+  const diagnostic=JSON.parse(await blobs[0].text());
+  assert.equal(diagnostic.format,'shsmu-diagnostic-v1');
+  assert.equal(diagnostic.complete,false);
+  assert(!JSON.stringify(diagnostic).includes('must-be-omitted'));
+  assert(!JSON.stringify(diagnostic).includes('000000000001'));
+  assert(!JSON.stringify(diagnostic).includes('synthetic account page'));
+  assert.match(panels[0].textContent,/采集未完成/);
+  if(resume) {
+    assert.equal(diagnostic.responses.length,6);
+    assert.equal(diagnostic.failure.request.params.MCSID,'21,22');
+    assert.equal(diagnostic.failure.request.attempt,3);
+    const retry=panels[0].children.find(child=>child.textContent==='继续采集');
+    assert(retry);
+    if(changeAccount)sandbox.document.body.innerText='学号： 000000000002\n我的课表';
+    await retry.click();
+    assert.equal(calls.filter(call=>call.path==='/Home/GetCurriculumTable').length,changeAccount?10:5,'resume must retain completed months only for the same account');
+    assert.equal(calls.filter(call=>call.params.MCSID==='11,12').length,changeAccount?2:1,'account changes must discard previously completed details');
+  } else {
+    assert(!panels[0].children.some(child=>child.textContent==='继续采集'),'authentication or schema failures must not offer cached resume');
+    return;
+  }
+}
+assert.equal(blobs.length,resume?2:1,panels[0]?.textContent);
+const downloaded=JSON.parse(await blobs[blobs.length-1].text());
+assert.equal(downloaded.format,'shsmu-capture-v1');
+assert.equal(downloaded.complete,true);
+assert.equal(downloaded.responses.length,7);
+assert.match(downloaded.account_key,/^[a-f0-9]{64}$/);
+assert.equal(calls.filter(call=>call.path==='/Home').length,0,'identity must come from the normal visible homepage, with no extra Home request');
+assert(!JSON.stringify(downloaded).includes('must-be-omitted'));
+return downloaded;
+}
+let downloaded;
+for(const contentType of ['application/json','text/html; charset=utf-8','text/plain','']) downloaded=await executeBookmark(contentType);
+await executeBookmark('text/html',true);
+await executeBookmark('text/html',false,true);
+await executeBookmark('text/html',false,false,true);
+await executeBookmark('text/html',false,false,false,true);
+await executeBookmark('text/html',false,false,true,false,true);
+if(process.argv[2])await fs.writeFile(process.argv[2],JSON.stringify(downloaded));
+console.log('PASS (synthetic): generated bookmark execution, exact details, privacy, empty months, JSON content types, diagnostic-only failures, bounded retries and resumed complete capture without rereading completed requests.');
