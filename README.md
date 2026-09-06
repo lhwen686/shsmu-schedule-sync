@@ -4,13 +4,13 @@
 
 学生版面向 Windows 64 位电脑，不需要安装 Python、使用命令行或修改配置文件。使用平时登录教务的浏览器，适用于上海交通大学医学院本科教务系统 jwstu.shsmu.edu.cn。
 
-**[下载 Windows 软件与使用说明](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc4)**。在下载页选择“医学院课表助手.exe”，或下载包含软件和说明的完整包；无需从绿色 Code 按钮下载源码。
+**[点击下载 Windows 完整软件包](https://github.com/lhwen686/shsmu-schedule-sync/releases/download/v1.0.0-rc4/SHSMU-Schedule-Assistant-1.0.0-rc4-Windows-x64.zip)**。下载后右键选择“全部解压缩”，里面就是中文命名的软件和使用说明。单独 EXE、图文说明和校验值见 [下载页](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc4)。
 
 当前为 **1.0.0-rc4 候选版**。自动检查和实机验收分开记录，尚未完成的环节见 [学生版验收](STUDENT_ACCEPTANCE.md)。原命令行工具继续可用，安装与维护命令见 [维护说明](MAINTENANCE.md)。
 
 ## 第一次使用
 
-1. 从上方下载页取得软件，双击 **医学院课表助手.exe**；如果下载了完整 ZIP 包，请先右键选择“全部解压缩”，再打开其中的同名 EXE。
+1. 下载上方完整 ZIP 包，右键选择“全部解压缩”，再双击其中的 **医学院课表助手.exe**。如果选择单独下载 EXE，直接双击该文件即可。
 2. 选择要导入的学期，**不用填写哪天结课**。当前默认 2026–2027 学年第 1 学期，助手按学校校历准备采集范围，并包含下学期开学前的寒假；实际有课到哪天由本人教务课表确定。
 3. 点 **复制安装页地址**，在平时登录教务的浏览器地址栏粘贴并回车。安装页会先检查基础功能；按图示把绿色“同步医学院课表”按钮拖到书签或收藏夹栏，再回助手点 **我已添加课表按钮**。
 
