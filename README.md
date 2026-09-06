@@ -113,9 +113,15 @@ CSV 采用官方七列，每次实际课程一行，保留实际周次、教师�
 安装依赖并生成书签后运行（JavaScript 测试需要支持内置 Fetch 的 Node.js）：
 
 ```powershell
-.\.venv\Scripts\python.exe -X utf8 -m unittest -v test_sync test_webcal test_wakeup
-node test_capture.mjs
-node test_transport.mjs
+.\.venv\Scripts\python.exe -X utf8 check.py
 ```
 
 模拟测试与真实验收分别记录在 [VERIFICATION.md](VERIFICATION.md)。接口说明见 [DISCOVERY.md](DISCOVERY.md)。仓库内测试数据为人工构造，不包含个人课表。
+
+## 2026-09-06 修复更新
+
+已安装用户需刷新 `chrome-bookmark.html`，手动把旧书签网址替换为修正版 5。空教师详情会停止采集或导入并保留旧课表；已有详情中的空教师字段仍可正常处理。
+
+课程类型更正沿用原 UID；课程编号变化会记录差异并增加修订号；WakeUp 允许快照保留历史源标识，同时严格核对本次原始记录。整月从有课变空，或删除至少 10 次且占原有效课程至少 25% 时，终端和差异文件会提示核对；完整有效的来源变化仍会提交。
+
+双击 `检查项目.cmd` 可运行全部 Python 与 JavaScript 测试，包括实际 CLI 提交后再导出 WakeUp 的模拟流程。服务器管理员需另外更新后端文件，升级与回滚见部署说明。

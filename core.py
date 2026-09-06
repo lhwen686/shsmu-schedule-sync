@@ -7,6 +7,7 @@ import html
 import json
 import re
 import uuid
+from collections import Counter
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -14,10 +15,10 @@ from icalendar import Calendar, Event, Timezone
 
 TZ = ZoneInfo("Asia/Shanghai")
 NAMESPACE = uuid.UUID("5872874d-d0c4-4d4d-86f4-e8a228597678")
-FIELDS = ("course_name", "date", "start_time", "end_date", "end_time", "location", "teacher", "content", "notes", "course_type")
+FIELDS = ("course_name", "course_code", "date", "start_time", "end_date", "end_time", "location", "teacher", "content", "notes", "course_type")
 LABELS = {"course_name": "课程", "date": "日期", "start_time": "开始时间", "end_date": "结束日期",
           "end_time": "结束时间", "location": "地点", "teacher": "教师", "content": "授课内容",
-          "notes": "备注", "course_type": "类型"}
+          "notes": "备注", "course_type": "类型", "course_code": "课程编号"}
 
 
 class DataError(Exception):
@@ -64,6 +65,8 @@ def joined(rows, key):
 def normalize_one(row, details):
     if not isinstance(row, dict) or not isinstance(details, list) or any(not isinstance(d, dict) for d in details):
         raise DataError("课程或教学日历的响应结构改变。")
+    if not details:
+        raise DataError("教学日历详情为空，无法确认采集完整；请重新采集，旧课表保留。")
     if row.get("AllDay"):
         raise DataError("发现全天事件，需要核对时间规则后再发布。")
     start, end = parse_time(row.get("Start")), parse_time(row.get("End"))
@@ -120,6 +123,23 @@ def semantic(event):
     return {k: event.get(k, "") for k in FIELDS}
 
 
+def identity_key(alias):
+    """Match legacy aliases without treating the display course type as identity.
+
+    Keep persisted aliases and UUID anchors unchanged so existing UID history
+    remains usable. Course, schedule manager, source kind and source ID still
+    scope every match; any collision is rejected by reconcile.
+    """
+    try:
+        namespace, value = alias.split(":", 1)
+        _, course_id, manager_id, source_id = value.rsplit(":", 3)
+    except (AttributeError, ValueError):
+        raise DataError("事件身份标识格式不正确，已停止。") from None
+    if namespace not in ("slot", "detail", "teaching-event", "main") or not source_id:
+        raise DataError("事件身份标识格式不正确，已停止。")
+    return namespace, course_id, manager_id, source_id
+
+
 def normalize(items, start, end):
     lower, upper = date.fromisoformat(start), date.fromisoformat(end)
     if lower >= upper:
@@ -149,19 +169,21 @@ def reconcile(events, previous, scope, now):
     alias_index = {}
     for uid, event in old_all.items():
         for alias in event["identity_aliases"]:
-            if alias in alias_index and alias_index[alias] != uid:
+            key = identity_key(alias)
+            if key in alias_index and alias_index[key] != uid:
                 raise DataError("上一版本包含冲突身份，已停止。")
-            alias_index[alias] = uid
+            alias_index[key] = uid
     matched = set()
     current_aliases = set()
     current, changes = [], []
     for value in events:
         event = copy.deepcopy(value)
         aliases = set(event["identity_aliases"])
-        if current_aliases.intersection(aliases):
+        keys = {identity_key(alias) for alias in aliases}
+        if current_aliases.intersection(keys):
             raise DataError("多个当前事件共用源标识，可能发生拆课或合课，需要核对。")
-        current_aliases.update(aliases)
-        candidates = {alias_index[a] for a in aliases if a in alias_index}
+        current_aliases.update(keys)
+        candidates = {alias_index[key] for key in keys if key in alias_index}
         if len(candidates) > 1 or candidates.intersection(matched):
             raise DataError("排课标识出现拆分或合并歧义；上次完整版本保留。")
         old = old_all[next(iter(candidates))] if candidates else None
@@ -200,6 +222,15 @@ def reconcile(events, previous, scope, now):
     added_courses = {e["course_id"] for e in current if any(c["type"] == "ADDED" and c["uid"] == e["uid"] for c in changes)}
     removed_courses = {e["course_id"] for e in cancelled if any(c["type"] == "REMOVED" and c["uid"] == e["uid"] for c in changes)}
     warnings = []
+    old_months = Counter(e['date'][:7] for e in old_active.values())
+    new_months = Counter(e['date'][:7] for e in current)
+    for month, count in sorted(old_months.items()):
+        if not new_months[month]:
+            warnings.append(f"异常提示：{month} 的课程由 {count} 次变为 0 次；请在教务页面核对，必要时重新采集。")
+    removed_count = sum(c['type'] == 'REMOVED' for c in changes)
+    if removed_count >= 10 and removed_count * 4 >= len(old_active):
+        warnings.append(f"异常提示：本次删除 {removed_count}/{len(old_active)} 次课程（{removed_count / len(old_active):.0%}）；"
+                        "请核对删除明细，必要时重新采集。")
     if added_courses & removed_courses:
         warnings.append("同一课程同时出现新标识与删除标识；可能是停课加补课，也可能是教务重建标识。未按名称或时间强行合并。")
     missing_teacher = sum(not e["teacher"] for e in current)

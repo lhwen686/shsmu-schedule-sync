@@ -8,7 +8,7 @@ from pathlib import Path
 
 from icalendar import Calendar
 
-from core import DataError, export_ics, normalize, reconcile
+from core import DataError, export_ics, human_diff, normalize, reconcile
 from source import CaptureSource, LoginRequired, SourceError, scrub
 from sync import fetch_complete, load_current, month_ranges, publish, repair_exports
 
@@ -76,6 +76,71 @@ class TimetableTests(unittest.TestCase):
         self.assertEqual(current['events'][0]['uid'], old['events'][0]['uid'])
         self.assertEqual(diff['changes'], [])
 
+    def test_course_code_change_updates_diff_ics_and_revision(self):
+        item = fixture()
+        old = self.baseline([item])
+        item['event']['CourseCode'] = 'TEST002'
+        current, diff = reconcile(normalized([item]), old, SCOPE, LATER)
+        self.assertEqual(diff['summary'], {'ADDED': 0, 'REMOVED': 0, 'CHANGED': 1})
+        self.assertEqual(diff['changes'][0]['fields'], {'course_code': {'before': 'TEST001', 'after': 'TEST002'}})
+        self.assertIn('课程编号：TEST001 → TEST002', human_diff(diff))
+        event = Calendar.from_ical(export_ics(current)).walk('VEVENT')[0]
+        self.assertIn('课程编号：TEST002', str(event['DESCRIPTION']))
+        self.assertEqual(str(event['UID']), old['events'][0]['uid'])
+        self.assertEqual(int(event['SEQUENCE']), 1)
+        self.assertEqual(current['events'][0]['modified_at'], LATER)
+        repeated, changes = reconcile(normalized([item]), current, SCOPE, '2026-09-07T12:00:00Z')
+        self.assertEqual(changes['changes'], [])
+        self.assertEqual(export_ics(repeated), export_ics(current))
+        with self.assertRaises(DataError):
+            normalized([fixture(), item])
+
+    def test_course_type_change_keeps_legacy_uid_and_repeat_is_stable(self):
+        item = fixture()
+        old = self.baseline([item])
+        legacy_aliases = old['events'][0]['identity_aliases'][:]
+        item['event']['CurriculumType'] = '选修课'
+        current, diff = reconcile(normalized([item]), old, SCOPE, LATER)
+        self.assertEqual(current['events'][0]['uid'], old['events'][0]['uid'])
+        self.assertEqual(current['events'][0]['sequence'], 1)
+        self.assertEqual(current['cancelled_events'], [])
+        self.assertTrue(set(legacy_aliases).issubset(current['events'][0]['identity_aliases']))
+        self.assertEqual(diff['summary'], {'ADDED': 0, 'REMOVED': 0, 'CHANGED': 1})
+        self.assertEqual(diff['changes'][0]['fields'], {'course_type': {'before': '必修课', 'after': '选修课'}})
+        repeated, changes = reconcile(normalized([item]), current, SCOPE, '2026-09-07T12:00:00Z')
+        self.assertEqual(changes['changes'], [])
+        self.assertEqual(export_ics(repeated), export_ics(current))
+
+    def test_course_type_change_can_restore_cancelled_event(self):
+        old = self.baseline()
+        cancelled, _ = reconcile([], old, SCOPE, LATER)
+        item = fixture()
+        item['event']['CurriculumType'] = '选修课'
+        restored, diff = reconcile(normalized([item]), cancelled, SCOPE, '2026-09-07T12:00:00Z')
+        self.assertEqual(restored['events'][0]['uid'], old['events'][0]['uid'])
+        self.assertEqual(restored['events'][0]['sequence'], 2)
+        self.assertEqual(restored['cancelled_events'], [])
+        self.assertTrue(diff['changes'][0]['restored'])
+
+    def test_type_independent_matching_rejects_collisions_and_keeps_course_scope(self):
+        first, second = fixture(), fixture()
+        second['event']['CurriculumType'] = '选修课'
+        with self.assertRaises(DataError):
+            reconcile(normalized([first, second]), None, SCOPE, NOW)
+        old = self.baseline([fixture(), fixture(2)])
+        old['events'][1]['identity_aliases'] = [a.replace('必修课', '选修课') for a in old['events'][0]['identity_aliases']]
+        with self.assertRaises(DataError):
+            reconcile(normalized([first]), old, SCOPE, LATER)
+        for field in ('CurriculumID', 'CSID'):
+            with self.subTest(field=field):
+                changed = copy.deepcopy(second)
+                changed['event'][field] = 555
+                if field == 'CurriculumID':
+                    changed['details'][0][field] = 555
+                current, diff = reconcile(normalized([changed]), self.baseline(), SCOPE, LATER)
+                self.assertEqual(diff['summary'], {'ADDED': 1, 'REMOVED': 1, 'CHANGED': 0})
+                self.assertNotEqual(current['events'][0]['uid'], self.baseline()['events'][0]['uid'])
+
     def test_cancel_makeup_and_restore(self):
         old = self.baseline()
         current, diff = reconcile(normalized([fixture(2)]), old, SCOPE, LATER)
@@ -131,6 +196,37 @@ class TimetableTests(unittest.TestCase):
         changed = dict(SCOPE, account_key='different-account')
         with self.assertRaises(DataError):
             reconcile(normalized([fixture()]), self.baseline(), changed, LATER)
+
+    def test_month_becoming_empty_is_reported_even_when_event_moves(self):
+        old = self.baseline()
+        value = fixture()
+        value['event'].update(Start='2026-10-05T08:00:00', End='2026-10-05T09:30:00')
+        value['details'][0]['ClassTime'] = '2026-10-05T00:00:00'
+        snapshot, diff = reconcile(normalized([value]), old, SCOPE, LATER)
+        self.assertEqual(diff['summary'], {'ADDED': 0, 'REMOVED': 0, 'CHANGED': 1})
+        self.assertTrue(any('2026-09 的课程由 1 次变为 0 次' in message for message in diff['warnings']))
+        self.assertEqual(snapshot['warnings'], diff['warnings'])
+        self.assertIn('异常提示', human_diff(diff))
+
+    def test_large_deletion_warning_counts_removals_even_with_makeup_events(self):
+        old = self.baseline([fixture(n) for n in range(1, 41)])
+        for removed in (9, 10):
+            with self.subTest(removed=removed):
+                # Replacement lessons leave the total count unchanged.
+                values = [fixture(n) for n in range(removed + 1, 41)] + [fixture(n) for n in range(101, 101 + removed)]
+                snapshot, diff = reconcile(normalized(values), old, SCOPE, LATER)
+                self.assertEqual(len(snapshot['events']), 40)
+                self.assertEqual(diff['summary']['REMOVED'], removed)
+                warnings = [message for message in diff['warnings'] if '异常提示：本次删除' in message]
+                self.assertEqual(bool(warnings), removed == 10)
+                if warnings:
+                    self.assertIn('10/40', warnings[0])
+
+    def test_ordinary_cancellation_and_previously_empty_months_have_no_anomaly(self):
+        old = self.baseline([fixture(), fixture(2)])
+        for previous, values in ((None, [fixture()]), (old, [fixture(2)])):
+            snapshot, diff = reconcile(normalized(values), previous, SCOPE, LATER)
+            self.assertFalse(any('异常提示' in message for message in diff['warnings']))
 
     def test_chunk_coverage_and_exclusive_end(self):
         ranges = list(month_ranges(SCOPE['start'], SCOPE['end_exclusive']))

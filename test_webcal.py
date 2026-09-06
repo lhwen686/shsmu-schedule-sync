@@ -104,6 +104,51 @@ class WebCalTests(unittest.TestCase):
             self.assertEqual(self.request("PUT", "/upload", bad, WRITE)[0], 400)
             self.assertEqual(self.store.read(), original)
 
+    def test_rehashed_invalid_calendar_is_rejected_and_keeps_current(self):
+        original = example()
+        self.store.commit(original)
+        data = base64.b64decode(original['ics_base64'])
+        variants = {
+            'invalid_start': data.replace(b'20260907T080000', b'NOT_A_DATE'),
+            'impossible_day': data.replace(b'20260907T080000', b'20260230T080000'),
+            'end_before_start': data.replace(b'20260907T093000', b'20260907T070000'),
+            'invalid_stamp': data.replace(b'DTSTAMP:20260905T120000Z', b'DTSTAMP:invalid'),
+            'missing_stamp': data.replace(b'DTSTAMP:20260905T120000Z\r\n', b''),
+            'non_UTC_stamp': data.replace(b'DTSTAMP:20260905T120000Z', b'DTSTAMP;TZID=Asia/Shanghai:20260905T120000'),
+            'duplicate_start': data.replace(b'DTSTART;TZID=Asia/Shanghai:20260907T080000\r\n', b'DTSTART;TZID=Asia/Shanghai:20260907T080000\r\n' * 2),
+            'missing_end': data.replace(b'DTEND;TZID=Asia/Shanghai:20260907T093000\r\n', b''),
+            'invalid_nesting': data.replace(b'END:VEVENT', b'END:VTIMEZONE'),
+            'parameterized_component': data.replace(b'END:VEVENT', b'BEGIN;X-TEST=1:VALARM\r\nEND;X-TEST=1:VALARM\r\nEND:VEVENT'),
+            'unknown_timezone': data.replace(b'TZID=Asia/Shanghai', b'TZID=Unknown/Zone'),
+            'floating_time': data.replace(b';TZID=Asia/Shanghai', b''),
+            'wrong_timezone_offset': data.replace(b'TZOFFSETTO:+0800', b'TZOFFSETTO:+0700'),
+            'invalid_timezone_date': data.replace(b'20000101T000000', b'20000230T000000'),
+            'invalid_created': data.replace(b'CREATED:20260905T120000Z', b'CREATED:invalid'),
+            'negative_sequence': data.replace(b'SEQUENCE:0', b'SEQUENCE:-1'),
+            'recurrence': data.replace(b'SEQUENCE:0', b'SEQUENCE:0\r\nRRULE:FREQ=DAILY'),
+            'bad_version': data.replace(b'VERSION:2.0', b'VERSION:1.0'),
+        }
+        for name, invalid in variants.items():
+            with self.subTest(name=name):
+                self.assertNotEqual(invalid, data)
+                bad = dict(original, source_fetched_at='2026-09-05T13:00:00Z',
+                           ics_base64=base64.b64encode(invalid).decode(), sha256=hashlib.sha256(invalid).hexdigest())
+                self.assertEqual(self.request('PUT', '/upload', bad, WRITE)[0], 400)
+                self.assertEqual(self.store.read(), original)
+
+    def test_cancelled_and_utc_events_are_accepted(self):
+        previous = test_sync.TimetableTests().baseline()
+        cancelled, _ = reconcile([], previous, test_sync.SCOPE, test_sync.LATER)
+        data = export_ics(cancelled)
+        for utc in (False, True):
+            with self.subTest(utc=utc):
+                content = data
+                if utc:
+                    content = content.replace(b'DTSTART;TZID=Asia/Shanghai:20260907T080000', b'DTSTART:20260907T000000Z')
+                    content = content.replace(b'DTEND;TZID=Asia/Shanghai:20260907T093000', b'DTEND:20260907T013000Z')
+                payload = dict(example(), ics_base64=base64.b64encode(content).decode(), sha256=hashlib.sha256(content).hexdigest())
+                self.assertEqual(validate(payload), payload)
+
     def test_same_source_time_conflicting_content_is_rejected(self):
         self.store.commit(example())
         changed = example()

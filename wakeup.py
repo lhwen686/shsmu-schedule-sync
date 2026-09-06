@@ -50,12 +50,18 @@ def build_export(snapshot, bundle):
     if not isinstance(items, list):
         raise DataError('当前运行缺少完整原始课程，未导出 WakeUp 文件。')
     normalized = normalize(items, scope['start'], scope['end_exclusive'])
-    active = {tuple(e['identity_aliases']): e for e in snapshot['events']}
+    # source_ids describes this capture; identity_aliases also retains older IDs.
+    def source_key(event):
+        return json.dumps(event['source_ids'], sort_keys=True)
+
+    active = {source_key(e): e for e in snapshot['events']}
     if not active or len(active) != len(snapshot['events']) or len(normalized) != len(active):
         raise DataError('当前有效课程数量与原始采集不一致，未导出 WakeUp 文件。')
     for event in normalized:
-        saved = active.get(tuple(event['identity_aliases']))
-        if saved is None or any(saved.get(k) != v for k, v in event.items()):
+        saved = active.get(source_key(event))
+        if (saved is None
+                or not set(event['identity_aliases']).issubset(saved['identity_aliases'])
+                or any(saved.get(k) != v for k, v in event.items() if k != 'identity_aliases')):
             raise DataError('当前课程内容与原始采集不一致，未导出 WakeUp 文件。')
 
     times = slot_times()
@@ -83,7 +89,7 @@ def build_export(snapshot, bundle):
             raise DataError('同一次课程的详情周次冲突，未导出 WakeUp 文件。')
         row = (event['course_name'], day.isoweekday(), first, last,
                event['teacher'] or '无', event['location'] or '无', weeks.pop())
-        key = tuple(event['identity_aliases'])
+        key = source_key(event)
         if key in mapped and mapped[key] != row:
             raise DataError('相同课程的节次或周次冲突，未导出 WakeUp 文件。')
         mapped[key] = row
@@ -94,7 +100,7 @@ def build_export(snapshot, bundle):
     first_monday = week_starts.pop()
     if first_monday > date.fromisoformat(scope['start']):
         raise DataError('第一周起点晚于采集范围起点，需要先核对学期设置。')
-    rows = [mapped[tuple(e['identity_aliases'])] for e in normalized]
+    rows = [mapped[source_key(e)] for e in normalized]
     buffer = io.StringIO(newline='')
     writer = csv.writer(buffer, lineterminator='\r\n')
     writer.writerow(HEADER)

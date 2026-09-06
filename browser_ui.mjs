@@ -70,7 +70,7 @@ export async function runBookmark(config) {
         // Only schema-validated, scrubbed timetable responses are retained.
         onResponse:record => checkpoint.set(keyFor(record.path, record.params), record),
         saveCapture:async capture => {
-          download('shsmu-capture-', {...capture, collector_revision:'2026-09-05.4',
+          download('shsmu-capture-', {...capture, collector_revision:'2026-09-06.5',
             started_at:new Date(started).toISOString()});
           checkpoint.clear();
           checkpointAccount = '';
@@ -91,7 +91,7 @@ export async function runBookmark(config) {
       }
       const request = error?.request ?? null;
       const message = error?.code ? error.message : '课表响应未通过数据校验';
-      const diagnostic = {format:'shsmu-diagnostic-v1', collector_revision:'2026-09-05.4',
+      const diagnostic = {format:'shsmu-diagnostic-v1', collector_revision:'2026-09-06.5',
         origin:location.origin, config, complete:false, observed_at:new Date().toISOString(),
         failure:{stage, code, request}, request_log:trace, responses:[...checkpoint.values()]};
       panel.textContent = '采集未完成：' + message + '\n位置：' + stage +

@@ -9,3 +9,5 @@
 - Live validation needs a short-range check before the full semester, at least 10 page cross-checks, and a repeat sync without false changes. Report synthetic tests separately.
 - Limit changes to the requested scope and keep dependencies small. Do not deploy or alter an existing server unless that server operation is authorized.
 - WebCal is optional and represents one private calendar per backend instance. Published service files are deployment references, not a hosted multi-user service.
+
+- Run 检查项目.cmd or python -X utf8 check.py to discover all Python and JavaScript tests, including workflow and WakeUp tests. Bookmark revision 2026-09-06.5 must be manually reinstalled after this update.

@@ -10,7 +10,7 @@ import os
 import re
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -30,6 +30,114 @@ def timestamp(value):
     return result
 
 
+def calendar_datetime(prop, utc_only=False):
+    """Validate this publisher's timed events, not arbitrary imported calendars."""
+    params, value = prop
+    if set(params) - {'TZID', 'VALUE'} or params.get('VALUE', 'DATE-TIME') != 'DATE-TIME':
+        raise ValueError('datetime parameters')
+    if not re.fullmatch(r'\d{8}T\d{6}Z?', value):
+        raise ValueError('datetime format')
+    result = datetime.strptime(value.rstrip('Z'), '%Y%m%dT%H%M%S')
+    if not 2000 <= result.year <= 2100:
+        raise ValueError('datetime range')
+    if value.endswith('Z'):
+        if 'TZID' in params:
+            raise ValueError('UTC timezone parameter')
+        return result.replace(tzinfo=timezone.utc)
+    if utc_only or params.get('TZID') != 'Asia/Shanghai':
+        raise ValueError('unsupported or missing timezone')
+    return result.replace(tzinfo=timezone(timedelta(hours=8)))
+
+
+def validate_calendar(text, expected_count):
+    """Check the explicit-event feed produced by core.export_ics using stdlib.
+
+    The supported profile is UTC or Asia/Shanghai timed events in 2000-2100,
+    with the publisher's fixed +08:00 VTIMEZONE. Recurrence, alarms, floating
+    times and other calendar profiles require explicit support before upload.
+    """
+    if (not text.startswith('BEGIN:VCALENDAR\r\n') or not text.endswith('END:VCALENDAR\r\n')
+            or any(c in text.replace('\r\n', '') for c in ('\r', '\n', '\x00'))):
+        raise ValueError('calendar lines')
+    allowed = {None: {'VCALENDAR'}, 'VCALENDAR': {'VTIMEZONE', 'VEVENT'},
+               'VTIMEZONE': {'STANDARD'}, 'STANDARD': set(), 'VEVENT': set()}
+    stack, roots = [], []
+    for line in re.sub(r'\r\n[ \t]', '', text).split('\r\n')[:-1]:
+        head, separator, value = line.partition(':')
+        if not separator:
+            raise ValueError('content line')
+        if head == 'BEGIN':
+            parent = stack[-1][0] if stack else None
+            if value not in allowed[parent]:
+                raise ValueError('component nesting')
+            node = (value, {}, [])
+            (stack[-1][2] if stack else roots).append(node)
+            stack.append(node)
+        elif head == 'END':
+            if not stack or stack.pop()[0] != value:
+                raise ValueError('component end')
+        else:
+            if not stack:
+                raise ValueError('property outside component')
+            name, *parameters = head.split(';')
+            if name in ('BEGIN', 'END') or not re.fullmatch(r'[A-Z][A-Z0-9-]*', name) or name in stack[-1][1]:
+                raise ValueError('invalid or duplicate property')
+            params = {}
+            for parameter in parameters:
+                key, equals, param = parameter.partition('=')
+                if not equals or not param or key in params:
+                    raise ValueError('property parameters')
+                params[key] = param
+            stack[-1][1][name] = (params, value)
+    if stack or len(roots) != 1:
+        raise ValueError('calendar structure')
+    _, calendar, children = roots[0]
+    if calendar.get('VERSION') != ({}, '2.0') or not calendar.get('PRODID', ({}, ''))[1] or 'METHOD' in calendar:
+        raise ValueError('calendar properties')
+    zones = [node for node in children if node[0] == 'VTIMEZONE']
+    if len(zones) > 1:
+        raise ValueError('duplicate timezone')
+    zone_start = None
+    if zones:
+        _, properties, observances = zones[0]
+        if properties.get('TZID') != ({}, 'Asia/Shanghai') or len(observances) != 1:
+            raise ValueError('unsupported timezone')
+        _, standard, _ = observances[0]
+        if any(standard.get(key) != ({}, '+0800') for key in ('TZOFFSETFROM', 'TZOFFSETTO')):
+            raise ValueError('timezone offset')
+        params, value = standard.get('DTSTART', ({}, ''))
+        if params or not re.fullmatch(r'\d{8}T\d{6}', value) or any(key in standard for key in ('RRULE', 'RDATE')):
+            raise ValueError('timezone start')
+        zone_start = datetime.strptime(value, '%Y%m%dT%H%M%S').replace(tzinfo=timezone(timedelta(hours=8)))
+    events = [node[1] for node in children if node[0] == 'VEVENT']
+    if type(expected_count) is not int or not events or len(events) != expected_count:
+        raise ValueError('event count')
+    uids = set()
+    for event in events:
+        params, uid = event.get('UID', ({}, ''))
+        if params or not uid.strip() or uid in uids:
+            raise ValueError('event UID')
+        uids.add(uid)
+        start = calendar_datetime(event['DTSTART'])
+        end = calendar_datetime(event['DTEND'])
+        if end <= start:
+            raise ValueError('event duration')
+        for field, instant in (('DTSTART', start), ('DTEND', end)):
+            if event[field][0].get('TZID') == 'Asia/Shanghai' and (zone_start is None or instant < zone_start):
+                raise ValueError('missing or inapplicable timezone')
+        calendar_datetime(event['DTSTAMP'], utc_only=True)
+        for field in ('CREATED', 'LAST-MODIFIED'):
+            if field in event:
+                calendar_datetime(event[field], utc_only=True)
+        params, sequence = event.get('SEQUENCE', ({}, ''))
+        if params or not re.fullmatch(r'\d+', sequence):
+            raise ValueError('event sequence')
+        if event.get('STATUS') not in (({}, 'CONFIRMED'), ({}, 'CANCELLED')):
+            raise ValueError('event status')
+        if any(key in event for key in ('RRULE', 'RDATE', 'EXDATE', 'DURATION', 'RECURRENCE-ID')):
+            raise ValueError('unsupported recurrence')
+
+
 def validate(payload):
     if not isinstance(payload, dict) or payload.get("schema") != 1:
         raise ValueError("schema")
@@ -39,15 +147,7 @@ def validate(payload):
     content = base64.b64decode(payload["ics_base64"], validate=True)
     if not content or len(content) > MAX_BODY or digest(content) != payload["sha256"]:
         raise ValueError("content")
-    text = content.decode("utf-8")
-    if not text.startswith("BEGIN:VCALENDAR\r\n") or not text.endswith("END:VCALENDAR\r\n"):
-        raise ValueError("calendar")
-    lines = re.sub(r"\r\n[ \t]", "", text).split("\r\n")
-    count = lines.count("BEGIN:VEVENT")
-    uids = [line[4:] for line in lines if line.startswith("UID:")]
-    if (not count or count != lines.count("END:VEVENT") or count != payload.get("event_count")
-            or len(uids) != count or len(set(uids)) != count or any(not uid for uid in uids)):
-        raise ValueError("events")
+    validate_calendar(content.decode('utf-8'), payload.get('event_count'))
     return {k: payload[k] for k in (
         "schema", "run_id", "source_fetched_at", "sha256", "event_count", "ics_base64")}
 

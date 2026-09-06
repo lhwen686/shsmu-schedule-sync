@@ -53,3 +53,9 @@ python3 /opt/shsmu-calendar/webcal_server.py --config /etc/shsmu-calendar/auth.j
 只暂停本机上传：将 `enabled` 改为 `false`；线上仍提供最后发布的版本。只读检查使用 `systemctl status shsmu-calendar.service shsmu-calendar-https.service --no-pager`。管理员停用时仅停用这两个专用服务，保留配置与数据；不要修改其他业务服务。
 
 客户端使用正常 HTTPS 证书校验并拒绝重定向。后端不记录访问路径，Caddy 模板关闭可能记录路径的 HTTP 错误日志；若接入其他反向代理，应避免在日志中保存含密钥的订阅路径。
+
+## 已有服务升级
+
+此次后端增加了实际日期、起止先后、组件嵌套、重复属性、UTC 修订时间和时区声明检查。仅接受本项目明确的 2000–2100 年 UTC/Asia/Shanghai 课程事件、固定 +08:00 时区及 CONFIRMED/CANCELLED 状态；全天、浮动时间、复发规则和闹钟需要先增加明确支持。
+
+升级时先记录现有程序哈希、日历哈希、服务进程与监听，备份后端文件；在替换前用新校验器读取现有日历。只替换 `webcal_server.py` 并重启 `shsmu-calendar.service`，无需增加依赖或更改 HTTPS 配置。随后从实际 HTTPS 订阅地址回读，核对哈希及重复上传行为；失败时恢复旧后端并只重启该后端服务，保留原日历和配置。

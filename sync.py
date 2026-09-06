@@ -68,6 +68,8 @@ def fetch_complete(source, config, run_dir):
             result = source.details(row)
             if not isinstance(result, list) or any(not isinstance(d, dict) for d in result):
                 raise DataError("教学日历响应不是预期的数组。")
+            if not result:
+                raise DataError("教学日历详情为空，无法确认采集完整；请重新采集，旧课表保留。")
             write_json(run_dir / "raw" / f"details-{index:03d}.json", result)
             detail_cache[key] = result
         items.append({"event": row, "details": detail_cache[key]})

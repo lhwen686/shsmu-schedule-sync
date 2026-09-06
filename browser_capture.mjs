@@ -57,6 +57,7 @@ export async function collectSchedule(config, io) {
     if (requested.has(key)) continue;
     const result=await request('/Home/GetCalendarTable',params);
     if (!Array.isArray(result) || result.some(d=>!d||typeof d!=='object'||Array.isArray(d))) throw new Error('教学日历结构改变');
+    if (!result.length) throw Object.assign(new Error('教学日历详情为空，请重新采集；旧课表保留'), {code:'EMPTY_DETAILS'});
     io.onResponse?.(responses[responses.length-1]);
     requested.add(key);
   }

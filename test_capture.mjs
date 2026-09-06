@@ -24,6 +24,7 @@ assert.equal(record.responses.length,7);
 assert.equal(record.responses[5].response[0].Tel,undefined);
 assert.equal(record.responses[5].response[0].Teacher,'测试教师');
 assert.equal(record.responses[6].response[0].Teacher,'第二位教师');
+await assert.rejects(()=>collectSchedule(config,{fetchJSON:async(p,q)=>p==='/Home/GetCalendarTable'?[]:response(p,q),accountKey:async()=> 'a'.repeat(64),saveCapture:async()=>assert.fail('empty details must not produce a complete capture'),status:()=>{}}),error=>error.code==='EMPTY_DETAILS');
 await assert.rejects(()=>collectSchedule(config,{fetchJSON:async()=>{throw new Error('expired');},accountKey:async()=> 'a'.repeat(64),saveCapture:async()=>assert.fail('partial download'),status:()=>{}}));
 for (const title of [null,'2026-2027 学年 第2 学期']) {
   await assert.rejects(()=>collectSchedule(config,{fetchJSON:async()=>({Title:title,List:[row]}),accountKey:async()=> 'a'.repeat(64),saveCapture:async()=>assert.fail('invalid term download'),status:()=>{}}),/返回学期/);
@@ -33,7 +34,7 @@ const html=await fs.readFile(new URL('./chrome-bookmark.html',import.meta.url),'
 const href=html.match(/class="bookmark" href="([^"]+)"/)[1].replaceAll('&amp;','&').replaceAll('&#x27;',"'");
 const script=decodeURIComponent(href.slice('javascript:'.length));
 new vm.Script(script);
-async function executeBookmark(contentType, malformed=false, redirect=false, resume=false, wrongPage=false, changeAccount=false) {
+async function executeBookmark(contentType, malformed=false, redirect=false, resume=false, wrongPage=false, changeAccount=false, emptyDetails=false) {
 const blobs=[],panels=[],calls=[];
 let failures=resume?3:0;
 function element() {
@@ -54,7 +55,7 @@ const sandbox={location:{origin:'https://jwstu.shsmu.edu.cn',pathname:wrongPage?
     const url=new URL(input),path=url.pathname;
     calls.push({path,params:Object.fromEntries(url.searchParams)});
     if(url.searchParams.get('MCSID')==='21,22'&&failures-->0)throw new TypeError('Failed to fetch');
-    return {ok:true,status:200,type:'basic',url:redirect&&path!=='/Home'?'https://auth2.shsmu.edu.cn/cas/login':String(url),headers:{get:()=>contentType},text:async()=>path==='/Home'?'<html>synthetic account page</html>':malformed?'<html>Login required</html>':JSON.stringify(response(path,Object.fromEntries(url.searchParams)))};
+    return {ok:true,status:200,type:'basic',url:redirect&&path!=='/Home'?'https://auth2.shsmu.edu.cn/cas/login':String(url),headers:{get:()=>contentType},text:async()=>path==='/Home'?'<html>synthetic account page</html>':malformed?'<html>Login required</html>':JSON.stringify(emptyDetails&&path==='/Home/GetCalendarTable'?[]:response(path,Object.fromEntries(url.searchParams)))};
   }
 };
 vm.createContext(sandbox);
@@ -65,11 +66,12 @@ if(wrongPage) {
   assert(panels[0].children.some(child=>child.href==='https://jwstu.shsmu.edu.cn/Home'));
   return;
 }
-if(malformed||redirect||resume) {
+if(malformed||redirect||resume||emptyDetails) {
   assert.equal(blobs.length,1,'failure produces a diagnostic, never a complete capture');
   const diagnostic=JSON.parse(await blobs[0].text());
   assert.equal(diagnostic.format,'shsmu-diagnostic-v1');
   assert.equal(diagnostic.complete,false);
+  if(emptyDetails) assert.equal(diagnostic.failure.code,'EMPTY_DETAILS');
   assert(!JSON.stringify(diagnostic).includes('must-be-omitted'));
   assert(!JSON.stringify(diagnostic).includes('000000000001'));
   assert(!JSON.stringify(diagnostic).includes('synthetic account page'));
@@ -102,6 +104,7 @@ return downloaded;
 let downloaded;
 for(const contentType of ['application/json','text/html; charset=utf-8','text/plain','']) downloaded=await executeBookmark(contentType);
 await executeBookmark('text/html',true);
+await executeBookmark('application/json',false,false,false,false,false,true);
 await executeBookmark('text/html',false,true);
 await executeBookmark('text/html',false,false,true);
 await executeBookmark('text/html',false,false,false,true);

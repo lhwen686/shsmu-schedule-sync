@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from core import DataError, normalize, reconcile
 from sync import publish
-from test_sync import NOW, SCOPE, fixture
+from test_sync import NOW, LATER, SCOPE, fixture
 from wakeup import HEADER, build_export, export_current
 
 
@@ -114,6 +114,46 @@ class WakeUpTests(unittest.TestCase):
         bundle['items'].reverse()
         bundle['items'].append(copy.deepcopy(bundle['items'][0]))
         self.assertEqual(build_export(snapshot, bundle), expected)
+
+    def test_sync_then_export_after_identifier_change_and_repeat(self):
+        value = item()
+        previous, bundle = prepared([value])
+        expected_csv = build_export(previous, bundle)[0]
+        value = copy.deepcopy(value)
+        value['event'].update(ID=502, MCSID='501,502')
+        value['details'][0]['CurriculumScheduleIDs'] = '|501||502|'
+        bundle['items'] = [value]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for number in (1, 2):
+                snapshot, diff = reconcile(normalize([value], SCOPE['start'], SCOPE['end_exclusive']),
+                                           previous, SCOPE, LATER)
+                snapshot.update(coverage=[], capture_fetched_at=LATER)
+                self.assertEqual(snapshot['events'][0]['uid'], previous['events'][0]['uid'])
+                self.assertEqual(diff['changes'], [])
+                self.assertGreater(len(snapshot['events'][0]['identity_aliases']),
+                                   len(normalize([value], SCOPE['start'], SCOPE['end_exclusive'])[0]['identity_aliases']))
+                run = root / f'data/runs/2026-09-06T120000Z_1234567{number}'
+                publish(root, run, snapshot, diff, previous)
+                (run / 'capture.json').write_text(json.dumps(bundle), encoding='utf-8')
+                source_bytes = (run / 'schedule.json').read_bytes()
+                self.assertEqual(export_current(root)['event_count'], 1)
+                self.assertEqual((root / 'output/wakeup.csv').read_bytes(), expected_csv)
+                self.assertEqual((run / 'schedule.json').read_bytes(), source_bytes)
+                previous = snapshot
+
+    def test_history_does_not_allow_wrong_current_source_or_duplicate_identity(self):
+        for change in ('current_id', 'alias', 'duplicate'):
+            with self.subTest(change=change):
+                snapshot, bundle = prepared([item(), item(2)])
+                if change == 'current_id':
+                    snapshot['events'][0]['source_ids']['ID'] = 9999
+                elif change == 'alias':
+                    snapshot['events'][0]['identity_aliases'].pop()
+                else:
+                    snapshot['events'][1] = copy.deepcopy(snapshot['events'][0])
+                with self.assertRaises(DataError):
+                    build_export(snapshot, bundle)
 
     def test_export_preserves_source_and_failed_export_preserves_csv(self):
         with tempfile.TemporaryDirectory() as temp:
