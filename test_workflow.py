@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import sync
 from core import DataError, normalize
+from prepare import BROWSER_MODULES
 from source import ORIGIN, request_key
 from test_sync import NOW, LATER, SCOPE, fixture
 from wakeup import export_current
@@ -22,7 +23,7 @@ class WorkflowTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.config = {key: SCOPE[key] for key in ('semester', 'start', 'end_exclusive')}
         (self.root / 'config.local.json').write_text(json.dumps(self.config), encoding='utf-8')
-        for name in ('browser_transport.mjs', 'browser_capture.mjs', 'browser_ui.mjs'):
+        for name in BROWSER_MODULES:
             (self.root / name).write_bytes((sync.ROOT / name).read_bytes())
         root_patch = patch.object(sync, 'ROOT', self.root)
         root_patch.start()

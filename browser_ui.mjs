@@ -1,8 +1,13 @@
-// Bundled with browser_transport.mjs and browser_capture.mjs by prepare.py.
+// Bundled with the capability check, transport and collector by prepare.py.
 export async function runBookmark(config) {
-  const revision = '2026-09-06.6';
+  const revision = '2026-09-06.8';
   if (location.origin !== 'https://jwstu.shsmu.edu.cn') {
-    alert('请先在现有 Chrome 打开并正常登录 https://jwstu.shsmu.edu.cn/Home，再点击书签。');
+    alert('请先在添加课表按钮的同一个浏览器中打开并正常登录 https://jwstu.shsmu.edu.cn/Home，再点击书签或收藏夹里的课表按钮。');
+    return;
+  }
+  const capabilities = browserCapabilities(window);
+  if (!capabilities.ok) {
+    alert('当前浏览器或网页模式缺少课表助手需要的功能，尚未读取课表。\n请使用更新后的 Edge、Chrome 或 Firefox 普通窗口，避开 IE 兼容模式。\n请在所用浏览器重新添加课表按钮并正常登录。\n缺少：' + capabilities.missing.join('、'));
     return;
   }
   let panel = document.getElementById('shsmu-sync-status');
@@ -83,7 +88,7 @@ export async function runBookmark(config) {
           checkpointAccount = '';
         }
       });
-      if (downloadFailed) status('采集完成，但下载未能发起。请点击“重新下载采集文件”，并查看 Chrome 下载提示。无需重新采集。');
+      if (downloadFailed) status('采集完成，但下载未能发起。请点击“重新下载采集文件”，并查看 浏览器下载提示。无需重新采集。');
     } catch (error) {
       const code = error?.code ?? 'DATA_VALIDATION';
       if (code === 'HOMEPAGE_REQUIRED') {
@@ -124,7 +129,7 @@ export async function runBookmark(config) {
         button('重新下载采集文件', () => {
           if (!completed) return;
           try { download('shsmu-capture-', completed); }
-          catch { alert('下载未能发起，请保留本页并检查 Chrome 下载提示后重试。'); }
+          catch { alert('下载未能发起，请保留本页并检查 浏览器下载提示后重试。'); }
         });
       }
       button('关闭提示', () => { checkpoint.clear(); completed = null; panel.remove(); });

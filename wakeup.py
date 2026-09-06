@@ -33,6 +33,10 @@ def load_slot_times(root):
         values = json.loads(path.read_text(encoding='utf-8-sig'))
     except (OSError, ValueError, UnicodeError):
         raise DataError('无法读取 local/wakeup-slots.json；请对照 wakeup-slots.example.json 检查 UTF-8 JSON。') from None
+    return validate_slot_times(values)
+
+
+def validate_slot_times(values):
     if not isinstance(values, list) or len(values) != 14:
         raise DataError('自定义作息应依次列出 1–14 节的上课、下课时间；请对照 wakeup-slots.example.json。')
     times = {}
@@ -133,21 +137,25 @@ def build_export(snapshot, bundle, times=None):
     csv_bytes = buffer.getvalue().encode('utf-8-sig')
     report = {
         'event_count': len(rows), 'first_monday': first_monday.isoformat(),
-        'semester_weeks': ((date.fromisoformat(scope['end_exclusive']) - first_monday).days + 6) // 7,
+        'semester_weeks': max(row[-1] for row in rows),
+        'course_start': min(e['date'] for e in normalized),
+        'course_end': max(e['date'] for e in normalized),
         'capture_fetched_at': snapshot.get('capture_fetched_at', '未记录'),
         'csv_sha256': hashlib.sha256(csv_bytes).hexdigest(),
         'observed_start_slots': sorted(observed_start), 'observed_end_slots': sorted(observed_end),
+        'slot_times': times, 'custom_times': custom_times,
     }
     lines = [
         'WakeUp 课程表：iOS 手动导入说明', '',
         f"学期：{scope['semester']}；有效课程：{len(rows)} 次（CSV 每行对应一次实际课程）",
         f"学校数据采集时间（UTC）：{report['capture_fetched_at']}",
+        f"本次已公布课程：{report['course_start']} 至 {report['course_end']}；以后新公布的课程以再次采集为准。",
         '本次仅从已保存的完整快照导出，没有重新访问学校。', '',
         '1. 将 wakeup.csv 保存到 iPhone 的“文件”App。',
         '2. WakeUp → 导入课表 → Excel 导入 → 选取 CSV 文件 → 导入到新课表。',
         '3. 在课表设置中设置以下日期和作息；CSV 本身不携带这些设置。',
         f"   学期开始日期：{first_monday.isoformat()}（第一周周一）",
-        f"   学期周数：{report['semester_weeks']}；一天课程节数：14；每周从周一开始。",
+        f"   WakeUp 课表周数：{report['semester_weeks']}（按本次课程的最大教学周计算）；一天课程节数：14；每周从周一开始。",
         '4. 按下表设置上课时间；若无法逐项修改下课时间，关闭“每节课时长相同”。',
         '5. 核对首周、晚间课程和不连续周次，再决定是否删除旧课表。', '',
         '作息表（“已确认”仅表示原始课程明确给出了该起点或终点）：',
@@ -175,20 +183,25 @@ def build_export(snapshot, bundle, times=None):
     return csv_bytes, ('\r\n'.join(lines) + '\r\n').encode('utf-8-sig'), report
 
 
+def export_current_unlocked(root: Path):
+    """Caller holds exclusive_sync; also used by the desktop import transaction."""
+    snapshot = load_current(root)
+    if snapshot is None:
+        raise DataError('没有已提交的完整课表，请先运行“同步课表.cmd”。')
+    pointer = json.loads((root / 'data/current.json').read_text(encoding='utf-8'))
+    capture = root / 'data/runs' / pointer['run_id'] / 'capture.json'
+    if not capture.is_file():
+        raise DataError('当前完整版本缺少原始教师详情，请在保留个人数据的本地项目中导出。')
+    bundle = json.loads(capture.read_text(encoding='utf-8'))
+    csv_bytes, guide, report = build_export(snapshot, bundle, load_slot_times(root))
+    atomic_write(root / 'output/wakeup导入说明.txt', guide)
+    atomic_write(root / 'output/wakeup.csv', csv_bytes)
+    return report
+
+
 def export_current(root: Path):
     with exclusive_sync(root):
-        snapshot = load_current(root)
-        if snapshot is None:
-            raise DataError('没有已提交的完整课表，请先运行“同步课表.cmd”。')
-        pointer = json.loads((root / 'data/current.json').read_text(encoding='utf-8'))
-        capture = root / 'data/runs' / pointer['run_id'] / 'capture.json'
-        if not capture.is_file():
-            raise DataError('当前完整版本缺少原始教师详情，请在保留个人数据的本地项目中导出。')
-        bundle = json.loads(capture.read_text(encoding='utf-8'))
-        csv_bytes, guide, report = build_export(snapshot, bundle, load_slot_times(root))
-        atomic_write(root / 'output/wakeup导入说明.txt', guide)
-        atomic_write(root / 'output/wakeup.csv', csv_bytes)
-        return report
+        return export_current_unlocked(root)
 
 
 def main():

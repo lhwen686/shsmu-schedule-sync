@@ -11,6 +11,7 @@ import time
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from dataclasses import dataclass
 
 from core import DataError, content_hash, export_ics, human_diff, ids, normalize, parse_time, reconcile
 from source import CaptureSource, LoginRequired, SourceError, request_key, scrub, write_json
@@ -18,6 +19,23 @@ from prepare import build_bookmark, downloads_folder
 from webcal import UploadError, publish_current
 
 ROOT = Path(__file__).resolve().parent
+
+
+class SyncCancelled(Exception):
+    """A cooperative cancellation before the atomic commit begins."""
+
+
+def check_cancelled(cancel):
+    if cancel is not None and cancel.is_set():
+        raise SyncCancelled('已取消本次操作，原来的完整课表保留。')
+
+
+@dataclass
+class ImportResult:
+    snapshot: dict
+    diff: dict
+    duplicate: bool = False
+    collector_revision: str = ''
 
 
 def month_ranges(start, end):
@@ -36,13 +54,7 @@ def month_ranges(start, end):
         cursor = chunk_end
 
 
-def load_settings(path):
-    try:
-        config = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (ValueError, UnicodeError):
-        raise DataError("配置文件不是有效的 UTF-8 JSON；请对照 config.example.json 检查双引号、逗号和日期。") from None
-    except OSError:
-        raise DataError("无法读取配置文件，请检查 --config 路径和文件权限。") from None
+def validate_settings(config):
     if not isinstance(config, dict) or not all(key in config for key in ('semester', 'start', 'end_exclusive')):
         raise DataError("配置必须包含 semester、start、end_exclusive；请对照 config.example.json。")
     semester = config['semester']
@@ -53,6 +65,16 @@ def load_settings(path):
     if 'downloads_dir' in config and (not isinstance(config['downloads_dir'], str) or not config['downloads_dir'].strip()):
         raise DataError("downloads_dir 应为下载目录字符串；使用正斜杠（如 D:/Downloads），或删除该项使用默认目录。")
     return config
+
+
+def load_settings(path):
+    try:
+        config = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (ValueError, UnicodeError):
+        raise DataError("配置文件不是有效的 UTF-8 JSON；请对照 config.example.json 检查双引号、逗号和日期。") from None
+    except OSError:
+        raise DataError("无法读取配置文件，请检查 --config 路径和文件权限。") from None
+    return validate_settings(config)
 
 
 def capture_folder(config, config_path, override=None):
@@ -91,9 +113,10 @@ def check_semester(title, expected):
         raise DataError("教务返回的学期与配置不同，未替换当前课表。请核对当前学期与同步日期。")
 
 
-def fetch_complete(source, config, run_dir):
+def fetch_complete(source, config, run_dir, progress=print, cancel=None):
     all_rows, coverage = [], []
     for start, end in month_ranges(config["start"], config["end_exclusive"]):
+        check_cancelled(cancel)
         raw = source.timetable(start, end)
         write_json(run_dir / "raw" / f"timetable-{start}-{end}.json", raw)
         # Verified empty months have Title:null; nonempty ranges must match.
@@ -111,11 +134,12 @@ def fetch_complete(source, config, run_dir):
                 in_range.append(row)
         all_rows.extend(in_range)
         coverage.append({"start": start, "end_exclusive": end, "source_count": len(raw["List"]), "in_range_count": len(in_range)})
-        print(f"已读取 {start} 至 {end}：{len(in_range)} 个事件", flush=True)
+        progress(f"已读取 {start} 至 {end}：{len(in_range)} 个事件")
     if not all_rows:
         raise DataError("整个学期返回空课表；为避免登录或日期异常造成批量删除，已保留上次版本。")
     items, detail_cache = [], {}
     for index, row in enumerate(all_rows, 1):
+        check_cancelled(cancel)
         key = request_key('/Home/GetCalendarTable', {k: str(row.get(k) or '') for k in
                           ('MCSID', 'CSID', 'CurriculumID', 'XXKMID', 'CurriculumType')})
         if key not in detail_cache:
@@ -127,7 +151,7 @@ def fetch_complete(source, config, run_dir):
             write_json(run_dir / "raw" / f"details-{index:03d}.json", result)
             detail_cache[key] = result
         items.append({"event": row, "details": detail_cache[key]})
-    print(f"已读取教师详情：{len(detail_cache)} 个事件请求", flush=True)
+    progress(f"已读取教师详情：{len(detail_cache)} 个事件请求")
     bundle = {"complete": True, "coverage": coverage, "items": items,
               "account_key": source.account_key, "request_count": source.request_count}
     write_json(run_dir / "capture.json", bundle)
@@ -218,7 +242,7 @@ def exclusive_sync(root):
                 fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def wait_capture(folder, timeout=1800):
+def wait_capture(folder, timeout=1800, *, progress=print, cancel=None, choose=None, paused=None):
     if not folder.is_dir():
         raise SourceError("下载目录不存在；请修正 downloads_dir，或双击“导入已下载课表.cmd”选择已保存的 JSON。")
     def scan(pattern):
@@ -229,16 +253,24 @@ def wait_capture(folder, timeout=1800):
                     stat = path.stat()
                     found[path] = (stat.st_size, stat.st_mtime_ns)
             except OSError:
-                continue  # Chrome or the user may rename/move a file during a poll.
+                continue  # The browser or the user may rename/move a file during a poll.
         return found
     before = scan('shsmu-capture-*.json')
     diagnostics = scan('shsmu-diagnostic-*.json')
-    print(f"等待 Chrome 下载的新课表：{folder}", flush=True)
-    print("请在正常登录后显示本人学号的教务首页点击“同步医学院课表”书签。", flush=True)
-    print("文件已下载或保存在别处？关闭本窗口，再双击“导入已下载课表.cmd”，或把 JSON 拖到“同步课表.cmd”上。", flush=True)
+    progress(f"等待 浏览器 下载的新课表：{folder}")
+    progress("请在正常登录后显示本人学号的教务首页点击“同步医学院课表”书签。")
+    if choose is None:
+        progress("文件已下载或保存在别处？关闭本窗口，再双击“导入已下载课表.cmd”，或把 JSON 拖到“同步课表.cmd”上。")
     deadline = time.monotonic() + timeout
     last_seen = {}
     while time.monotonic() < deadline:
+        check_cancelled(cancel)
+        if paused is not None and paused.is_set():
+            cancel.wait(0.1) if cancel is not None else time.sleep(0.1)
+            continue
+        selected = choose() if choose is not None else None
+        if selected is not None:
+            return Path(selected)
         current = scan('shsmu-capture-*.json')
         candidates = [p for p, signature in current.items()
                       if signature != before.get(p) and signature == last_seen.get(p) and signature[0] > 0]
@@ -247,20 +279,80 @@ def wait_capture(folder, timeout=1800):
         last_seen = current
         new_diagnostics = scan('shsmu-diagnostic-*.json')
         if any(signature != diagnostics.get(p) for p, signature in new_diagnostics.items()):
-            print("收到失败诊断文件，尚未收到完整课表。请查看 Chrome 的错误提示；可按页面提示继续或重新采集，本窗口继续等待。", flush=True)
+            progress("收到失败诊断文件，尚未收到完整课表。请查看 浏览器 的错误提示；可按页面提示继续或重新采集，本窗口继续等待。")
         diagnostics = new_diagnostics
-        time.sleep(1)
+        cancel.wait(1) if cancel is not None else time.sleep(1)
     raise SourceError("等待结束，尚未收到新课表。若文件已保存，请双击“导入已下载课表.cmd”选择它，无需重新采集。")
 
 
+def import_capture_unlocked(root, config, capture_path, *, new_term=False, progress=print,
+                            cancel=None, on_commit=None):
+    """Shared import service. Caller owns exclusive_sync for the entire operation.
+
+    No upload or WakeUp export occurs here; callers select those explicit actions.
+    Cancellation stops before commit. Once commit starts it must finish atomically.
+    """
+    check_cancelled(cancel)
+    previous = load_current(root)
+    repair_exports(root)
+    source = CaptureSource(capture_path, config)
+    capture_hash = content_hash(source.capture)
+    revision = str(source.capture.get('collector_revision', ''))
+    if previous and previous.get('capture_hash') == capture_hash:
+        progress("该文件已经处理，没有新的实时采集；当前课表与日历保持原版本。")
+        return ImportResult(previous, {'synced_at': previous['synced_at'],
+                            'summary': {'ADDED': 0, 'REMOVED': 0, 'CHANGED': 0},
+                            'changes': [], 'warnings': previous.get('warnings', [])}, True, revision)
+    fetched_at = source.capture.get('fetched_at', '')
+    try:
+        fetched_time = datetime.fromisoformat(fetched_at.replace('Z', '+00:00'))
+    except (ValueError, AttributeError):
+        raise DataError("采集文件缺少有效完成时间，请重新在教务首页采集。") from None
+    if fetched_time.tzinfo is None:
+        raise DataError("采集时间缺少时区。")
+    if previous and previous.get('capture_fetched_at') and fetched_time < datetime.fromisoformat(previous['capture_fetched_at'].replace('Z', '+00:00')):
+        raise DataError("这是比当前版本更旧的采集文件，拒绝回退课表。")
+    progress(f"读取 浏览器 采集结果；学校数据采集时间：{fetched_at}")
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+    run_dir = root / 'data/runs' / (now.replace(':', '') + '_' + uuid.uuid4().hex[:8])
+    scope = {"semester": config["semester"], "start": config["start"],
+             "end_exclusive": config["end_exclusive"], "account_key": source.account_key}
+    if previous and previous['scope']['account_key'] != source.account_key:
+        raise DataError("当前登录账号与已保存课表不符；请登录原账号，或为另一人使用不含个人数据和上传配置的独立项目目录。--new-term 不用于切换账号。")
+    scope_changed = previous is not None and previous['scope'] != scope
+    if scope_changed and not new_term:
+        raise DataError("学期或范围已改变，请核对配置及书签；确认新学期时使用 --new-term。")
+    bundle = fetch_complete(source, config, run_dir, progress=progress, cancel=cancel)
+    events = normalize(bundle['items'], config['start'], config['end_exclusive'])
+    matching_previous = None if scope_changed else previous
+    if (scope_changed and previous['scope']['semester'] == scope['semester']
+            and scope['start'] <= previous['scope']['start']
+            and scope['end_exclusive'] >= previous['scope']['end_exclusive']):
+        # All old dates were fetched again: keep aliases, revisions and tombstones.
+        # Account equality was checked above, and new_term explicitly permits this scope.
+        matching_previous = {**previous, 'scope': scope}
+    snapshot, diff = reconcile(events, matching_previous, scope, now)
+    snapshot['coverage'] = bundle['coverage']
+    snapshot['request_count'] = bundle['request_count']
+    snapshot['capture_hash'] = capture_hash
+    snapshot['capture_fetched_at'] = fetched_at
+    check_cancelled(cancel)
+    if on_commit is not None:
+        on_commit()
+    publish(root, run_dir, snapshot, diff, previous)
+    progress(human_diff(diff))
+    progress(f"本地已保存 {len(events)} 个有效事件。日历：{root / 'output/calendar.ics'}")
+    return ImportResult(snapshot, diff, False, revision)
+
+
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="上海交通大学医学院课表同步（复用已打开的 Chrome）")
+    parser = argparse.ArgumentParser(description="上海交通大学医学院课表同步（复用已打开的 浏览器）")
     actions = parser.add_mutually_exclusive_group()
-    actions.add_argument("--prepare", action="store_true", help="生成 Chrome 书签安装页，不启动浏览器")
-    actions.add_argument("--capture", type=Path, help="处理指定的 Chrome 采集文件")
+    actions.add_argument("--prepare", action="store_true", help="生成 浏览器 书签安装页，不启动浏览器")
+    actions.add_argument("--capture", type=Path, help="处理指定的 浏览器 采集文件")
     actions.add_argument("--select-capture", action="store_true", help="打开文件选择窗口，导入已下载的 JSON")
     parser.add_argument("capture_file", nargs='?', type=Path, help="可直接把采集 JSON 拖到“同步课表.cmd”上")
-    parser.add_argument("--downloads", type=Path, help="Chrome 的下载目录；默认读取 Windows 下载文件夹")
+    parser.add_argument("--downloads", type=Path, help="浏览器 的下载目录；默认读取 Windows 下载文件夹")
     actions.add_argument("--repair", action="store_true", help="从已提交快照重新生成输出，不访问学校")
     actions.add_argument("--upload-only", action="store_true", help="仅重试上传当前完整日历，不访问学校")
     parser.add_argument("--new-term", action="store_true", help="显式开始新学期；历史完整版本保留")
@@ -289,49 +381,13 @@ def main(argv=None):
             if args.prepare:
                 print(f"已生成书签安装页：{ROOT / 'chrome-bookmark.html'}")
                 return 0
-            previous = load_current(ROOT)
-            repair_exports(ROOT)
             folder = capture_folder(config, args.config, args.downloads)
             capture_path = args.capture or args.capture_file
             if capture_path is None:
                 capture_path = select_capture(folder) if args.select_capture else wait_capture(folder)
-            source = CaptureSource(capture_path, config)
-            capture_hash = content_hash(source.capture)
-            if previous and previous.get('capture_hash') == capture_hash:
-                print("该文件已经处理，没有新的实时采集；当前课表与日历保持原版本。")
-                publish_current(ROOT)
-                return 0
-            fetched_at = source.capture.get('fetched_at', '')
-            try:
-                fetched_time = datetime.fromisoformat(fetched_at.replace('Z','+00:00'))
-            except (ValueError, AttributeError):
-                raise DataError("采集文件缺少有效完成时间，请重新在教务首页采集。") from None
-            if fetched_time.tzinfo is None:
-                raise DataError("采集时间缺少时区。")
-            if previous and previous.get('capture_fetched_at') and fetched_time < datetime.fromisoformat(previous['capture_fetched_at'].replace('Z','+00:00')):
-                raise DataError("这是比当前版本更旧的采集文件，拒绝回退课表。")
-            print(f"读取 Chrome 采集结果；学校数据采集时间：{fetched_at}", flush=True)
-            now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-            run_id = now.replace(":", "") + "_" + uuid.uuid4().hex[:8]
-            run_dir = ROOT / "data/runs" / run_id
-            scope = {"semester": config["semester"], "start": config["start"],
-                     "end_exclusive": config["end_exclusive"], "account_key": source.account_key}
-            if previous and previous['scope']['account_key'] != source.account_key:
-                raise DataError("当前登录账号与已保存课表不符；请登录原账号，或为另一人使用不含个人数据和上传配置的独立项目目录。--new-term 不用于切换账号。")
-            scope_changed = previous is not None and previous['scope'] != scope
-            if scope_changed and not args.new_term:
-                raise DataError("学期或范围已改变，请核对配置及书签；确认新学期时使用 --new-term。")
-            bundle = fetch_complete(source, config, run_dir)
-            events = normalize(bundle["items"], config["start"], config["end_exclusive"])
-            snapshot, diff = reconcile(events, None if scope_changed else previous, scope, now)
-            snapshot["coverage"] = bundle["coverage"]
-            snapshot["request_count"] = bundle["request_count"]
-            snapshot['capture_hash'] = capture_hash
-            snapshot['capture_fetched_at'] = fetched_at
-            publish(ROOT, run_dir, snapshot, diff, previous)
-            print(human_diff(diff))
-            print(f"本地已保存 {len(events)} 个有效事件。日历：{ROOT / 'output/calendar.ics'}")
-            if diff['changes'] and (ROOT / 'output/wakeup.csv').exists():
+            result = import_capture_unlocked(ROOT, config, capture_path, new_term=args.new_term,
+                                              progress=lambda text: print(text, flush=True))
+            if result.diff['changes'] and (ROOT / 'output/wakeup.csv').exists():
                 print("课表已变化；已有 WakeUp CSV 仍是旧文件，请再双击“导出 WakeUp 课表.cmd”。")
             publish_current(ROOT)
             return 0

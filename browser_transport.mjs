@@ -1,12 +1,16 @@
 // Normal same-origin GETs only; never read authentication headers or storage.
 export function createSchoolReader(origin, io = {}) {
-  const send = io.fetch ?? fetch;
+  const send = io.fetch !== undefined ? io.fetch : (typeof fetch === 'function' ? fetch : null);
   const sleep = io.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
   const now = io.now ?? Date.now;
   const observe = io.observe ?? (() => {});
-  const makeXHR = io.xhrFactory ?? (typeof XMLHttpRequest === 'function' ? () => new XMLHttpRequest() : null);
+  const makeXHR = io.xhrFactory !== undefined ? io.xhrFactory : (typeof XMLHttpRequest === 'function' ? () => new XMLHttpRequest() : null);
+  const makeController = io.controllerFactory !== undefined ? io.controllerFactory :
+    (typeof AbortController === 'function' ? () => new AbortController() : null);
+  const scheduleTimeout = io.setTimeout ?? setTimeout;
+  const cancelTimeout = io.clearTimeout ?? clearTimeout;
   const allowed = new Set(['/Home', '/Home/GetCurriculumTable', '/Home/GetCalendarTable']);
-  let lastFinished = 0, transport = 'fetch';
+  let lastFinished = 0, transport = send && makeController ? 'fetch' : 'xhr';
   const problem = (code, message, retryable = false, status = null) =>
     Object.assign(new Error(message), {code, retryable, status, school_read_error:true});
   async function sendXHR(url, headers) {
@@ -27,19 +31,27 @@ export function createSchoolReader(origin, io = {}) {
   return async function read(path, params, json = true) {
     if (origin !== 'https://jwstu.shsmu.edu.cn' || !allowed.has(path))
       throw problem('SOURCE', '请求来源不在已核实范围内');
+    if (transport === 'xhr' && !makeXHR)
+      throw problem('BROWSER_UNSUPPORTED', '当前浏览器缺少读取课表所需功能，请更新浏览器并重新打开教务首页');
     const url = new URL(path, origin);
     if (params) url.search = new URLSearchParams(params);
     for (let attempt = 1; attempt <= 3; attempt++) {
       const gap = 1000 - (now() - lastFinished);
       if (gap > 0) await sleep(gap);
       observe({path, params, attempt, state:'start', transport});
-      let failure;
+      let failure, timeout = null;
       try {
         const options = {
           credentials:'same-origin', cache:'no-store', redirect:'manual',
-          headers:json ? {Accept:'application/json', 'X-Requested-With':'XMLHttpRequest'} : {},
-          signal:AbortSignal.timeout(45000)
+          headers:json ? {Accept:'application/json', 'X-Requested-With':'XMLHttpRequest'} : {}
         };
+        // Older supported browsers lack AbortSignal.timeout. XHR has its own
+        // timeout and must never depend on fetch's cancellation APIs.
+        if (transport === 'fetch') {
+          const controller = makeController();
+          options.signal = controller.signal;
+          timeout = scheduleTimeout(() => controller.abort(), 45000);
+        }
         const response = transport === 'xhr' ? await sendXHR(url, options.headers) : await send(url, options);
         // Manual redirects expose no destination or authentication parameters.
         if (response.type === 'opaqueredirect' || response.redirected)
@@ -70,6 +82,7 @@ export function createSchoolReader(origin, io = {}) {
           ['TimeoutError','AbortError'].includes(error?.name) ? '学校请求超过 45 秒未完成' : '浏览器未能完成学校请求',
           true);
       } finally {
+        if (timeout !== null) cancelTimeout(timeout);
         lastFinished = now();
       }
       observe({path, params, attempt, state:'failure', transport, code:failure.code, status:failure.status});

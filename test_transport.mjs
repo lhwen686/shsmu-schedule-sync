@@ -65,4 +65,57 @@ assert.equal(xhrCalls[0].method,'GET');
 assert.equal(xhrCalls[0].headers['Cache-Control'],'no-cache');
 assert.equal(xhrCalls[0].timeout,45000);
 assert(!Object.keys(xhrCalls[0].headers).some(key=>/cookie|authorization/i.test(key)));
-console.log('PASS (synthetic): bounded retries, backoff, opaque login redirect, HTTP errors, timeout sanitization, JSON body parsing, XHR fallback and reuse.');
+
+// Regression: missing AbortSignal.timeout used to fail even the XHR fallback.
+const originalAbortSignal = globalThis.AbortSignal;
+try {
+  globalThis.AbortSignal = undefined;
+  trial = fixture([{}]);
+  await trial.read(path, params);
+  assert.equal(trial.calls.length, 1);
+  assert(trial.calls[0].options.signal instanceof originalAbortSignal);
+  trial = fixture([failure], {xhrFactory: () => new TestXHR()});
+  await trial.read(path, params);
+  assert.equal(trial.calls.length, 1);
+} finally { globalThis.AbortSignal = originalAbortSignal; }
+
+for (const missing of [{controllerFactory:null}, {fetch:null}]) {
+  const count = xhrCalls.length;
+  trial = fixture([], {...missing, xhrFactory: () => new TestXHR()});
+  await trial.read(path, params);
+  assert.equal(trial.calls.length, 0, 'use XHR directly when fetch cannot be bounded');
+  assert.equal(xhrCalls.length, count + 1);
+}
+const originalFetch = globalThis.fetch;
+try {
+  globalThis.fetch = undefined;
+  const read = createSchoolReader(origin, {xhrFactory: () => new TestXHR()});
+  assert.deepEqual(await read(path, params), {List:[]});
+} finally { globalThis.fetch = originalFetch; }
+trial = fixture([], {fetch:null, xhrFactory:null, controllerFactory:null});
+await assert.rejects(() => trial.read(path, params), e => e.code === 'BROWSER_UNSUPPORTED' && !e.retryable);
+assert.equal(trial.log.length, 0, 'missing browser APIs must stop before a request');
+
+// The 45-second limit covers the body too; every success/failure clears its timer.
+let timers = 0, cleared = 0;
+const pending = new Map();
+const timeoutIO = {
+  setTimeout: (fn, ms) => {assert.equal(ms,45000); const id=++timers; pending.set(id,fn); return id;},
+  clearTimeout: id => {assert(pending.delete(id)); cleared++;}
+};
+trial = fixture([{}, {text: async () => '<html>login</html>'}], timeoutIO);
+await trial.read(path,params);
+await assert.rejects(() => trial.read(path,params), e => e.code === 'NON_JSON');
+assert.equal(pending.size,0);
+assert.equal(cleared,2);
+const timeoutRead = createSchoolReader(origin, {
+  ...timeoutIO, xhrFactory:null, sleep:async()=>{},
+  fetch: async (url, options) => ok(url, {text: () => new Promise((resolve, reject) => {
+    options.signal.addEventListener('abort', () => reject(new DOMException('private', 'AbortError')));
+    [...pending.values()].at(-1)();
+  })})
+});
+await assert.rejects(() => timeoutRead(path,params), e => e.code === 'TIMEOUT' && e.request.attempt === 3);
+assert.equal(pending.size,0);
+assert.equal(cleared,5);
+console.log('PASS (synthetic): bounded requests and body timeouts, timer cleanup, missing AbortSignal/fetch/AbortController, direct and fallback XHR, retries, redirects and sanitized failures.');

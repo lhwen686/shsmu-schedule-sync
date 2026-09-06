@@ -36,7 +36,7 @@ export async function collectSchedule(config, io) {
     // A verified empty January response has Title:null and List:[].
     // Nonempty ranges must still identify the expected semester.
     if ((raw.List.length || String(raw.Title??'').trim()) && (!term || `${term[1]}:${term[2]}`!==config.semester))
-      fail(`${cursor} 返回学期 ${term?term[1]+':'+term[2]:'未注明'}，书签配置为 ${config.semester}；请核对 config.local.json，重新生成安装页并手动替换旧书签网址`);
+      fail(`${cursor} 返回学期 ${term?term[1]+':'+term[2]:'未注明'}，书签配置为 ${config.semester}；请核对学期设置，重新生成安装页并手动替换旧书签网址`);
     if ((raw.List2?.length??0)||(raw.StuExam?.length??0)) fail('出现新的数据分支，需要核实后再同步');
     for (const row of raw.List) {
       const day=String(row.Start??'').slice(0,10);
@@ -66,6 +66,6 @@ export async function collectSchedule(config, io) {
   const capture={format:'shsmu-capture-v1',origin:'https://jwstu.shsmu.edu.cn',config,account_key,
     fetched_at:new Date().toISOString(),complete:true,responses};
   await io.saveCapture(capture);
-  io.status(`采集完成：${rows.length} 个事件；已发起 JSON 下载。\n请查看 Chrome 下载列表，并以本地同步窗口的处理结果为准。\n若未保存文件，可点击“重新下载采集文件”；无需重新采集。`);
+  io.status(`采集完成：${rows.length} 次课程；已发起课表文件下载。\n请查看 浏览器下载列表，然后回到课表助手（或本地同步窗口）查看处理结果。手机还需要手动导入。\n若未保存文件，可点击“重新下载采集文件”；无需重新采集。`);
   return capture;
 }

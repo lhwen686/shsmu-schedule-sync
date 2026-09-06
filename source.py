@@ -1,4 +1,4 @@
-"""Read timetable responses downloaded by the user's already-open Chrome.
+"""Read timetable responses downloaded by the user's already-open browser.
 
 Python never opens browsers or reads browser profiles, cookies or credentials.
 """
@@ -47,7 +47,7 @@ class CaptureSource:
         if not isinstance(self.capture, dict):
             raise SourceError("文件不是课表 JSON 对象，请选择 shsmu-capture 开头的完整采集文件。")
         if self.capture.get('format') == 'shsmu-diagnostic-v1':
-            raise SourceError("这是失败诊断文件，不能导入课表；请按 Chrome 提示继续或重新采集，选择 shsmu-capture 开头的文件。")
+            raise SourceError("这是失败诊断文件，不能导入课表；请按浏览器页面提示继续或重新采集，选择 shsmu-capture 开头的文件。")
         if self.capture.get("format") != "shsmu-capture-v1" or self.capture.get("complete") is not True:
             raise SourceError("文件不是已经完整采集的课表响应。")
         if self.capture.get("origin") != ORIGIN:

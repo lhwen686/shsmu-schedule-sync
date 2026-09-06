@@ -20,6 +20,21 @@ function response(path,params) {
   throw new Error('Unexpected test endpoint');
 }
 const record=await collectSchedule(config,{fetchJSON:async(p,q)=>response(p,q),accountKey:async()=> 'a'.repeat(64),saveCapture:async()=>{},status:()=>{}});
+// A winter course after the former Jan 17 cutoff must survive empty months.
+const extended={...config,end_exclusive:'2027-02-22'}, extendedCalls=[];
+const winter={...row,Start:'2027-01-25T08:00:00',End:'2027-01-25T09:30:00'};
+const extendedRecord=await collectSchedule(extended,{
+  fetchJSON:async(path,params)=>{
+    extendedCalls.push({path,params});
+    return path==='/Home/GetCalendarTable'?[{...detail,ClassTime:'2027-01-25T00:00:00'}]:
+      {Title:params.Start==='2027-01-01'?'2026-2027 学年 第1 学期':null,
+       List:params.Start==='2027-01-01'?[winter]:[]};
+  },accountKey:async()=> 'a'.repeat(64),saveCapture:async()=>{},status:()=>{}
+});
+assert.equal(extendedCalls.filter(c=>c.path==='/Home/GetCurriculumTable').length,6);
+assert.deepEqual(extendedCalls[5].params,{Start:'2027-02-01',End:'2027-02-22'});
+assert.equal(extendedRecord.responses[4].response.List[0].Start,winter.Start);
+assert.equal(extendedRecord.responses.at(-1).response[0].ClassTime,'2027-01-25T00:00:00');
 assert.equal(record.responses.length,7);
 assert.equal(record.responses[5].response[0].Tel,undefined);
 assert.equal(record.responses[5].response[0].Teacher,'测试教师');
@@ -35,12 +50,12 @@ const href=html.match(/class="bookmark" href="([^"]+)"/)[1].replaceAll('&amp;','
 const script=decodeURIComponent(href.slice('javascript:'.length));
 new vm.Script(script);
 async function executeBookmark(contentType, malformed=false, redirect=false, resume=false, wrongPage=false, changeAccount=false, emptyDetails=false, options={}) {
-const blobs=[],panels=[],calls=[];
+const blobs=[],panels=[],calls=[],alerts=[];
 let failures=resume?3:0;
 let downloadBlocked=options.blockDownload;
 function element() {
   let value='';
-  return {dataset:{},style:{},children:[],
+  return {dataset:{},style:{},children:[],download:'',
     get textContent(){return value;},
     set textContent(text){value=text;this.children=[];},
     append(child){this.children.push(child);},
@@ -48,8 +63,8 @@ function element() {
 }
 class TestURL extends URL {static createObjectURL(b){if(downloadBlocked){downloadBlocked=false;throw new Error('synthetic download failure');}blobs.push(b);return 'blob:test';} static revokeObjectURL(){}}
 const sandbox={location:{origin:'https://jwstu.shsmu.edu.cn',pathname:wrongPage?'/Home/Timetable':'/Home'},URL:TestURL,URLSearchParams,TextEncoder,Blob,crypto:webcrypto,
-  AbortSignal,Date,Map,Set,Promise,Error,JSON,Number,String,Array,Object,alert:()=>assert.fail('unexpected alert'),
-  setTimeout:fn=>{fn();return 1;},
+  AbortSignal:undefined,AbortController,Date,Map,Set,Promise,Error,JSON,Number,String,Array,Object,alert:message=>alerts.push(message),
+  setTimeout:(fn,ms)=>{if(ms!==45000)fn();return 1;},clearTimeout:()=>{},
   document:{getElementById:()=>null,body:{innerText:'学号： 000000000001\n我的课表',append:el=>panels.push(el)},createElement:element},
   DOMParser:class {parseFromString(){return {body:{textContent:'学号： 000000000001\n我的课表'}};}},
   fetch:async input=>{
@@ -61,8 +76,38 @@ const sandbox={location:{origin:'https://jwstu.shsmu.edu.cn',pathname:wrongPage?
     return {ok:true,status:200,type:'basic',url:redirect&&path!=='/Home'?'https://auth2.shsmu.edu.cn/cas/login':String(url),headers:{get:()=>contentType},text:async()=>path==='/Home'?'<html>synthetic account page</html>':malformed?'<html>Login required</html>':JSON.stringify(emptyDetails&&path==='/Home/GetCalendarTable'?[]:data)};
   }
 };
+sandbox.window=sandbox;
+if(options.xhrOnly) {
+  const send=sandbox.fetch;
+  sandbox.fetch=undefined;
+  sandbox.AbortController=undefined;
+  sandbox.XMLHttpRequest=class {
+    open(method,url,async){assert.equal(method,'GET');assert.equal(async,true);this.url=url;}
+    setRequestHeader(){}
+    getResponseHeader(){return contentType;}
+    send(){
+      assert.equal(this.timeout,45000);
+      send(this.url).then(async response=>{
+        this.status=response.status;this.responseURL=response.url;
+        this.responseText=await response.text();this.onload();
+      },()=>this.onerror());
+    }
+  };
+}
+if(options.unsupported==='crypto')sandbox.crypto={};
+if(options.unsupported==='ie')sandbox.document.documentMode=11;
+if(options.unsupported==='download')sandbox.URL={};
 vm.createContext(sandbox);
 await vm.runInContext(script.replace(/^void/,''),sandbox);
+if(options.unsupported) {
+  assert.equal(calls.length,0);
+  assert.equal(blobs.length,0);
+  assert.equal(panels.length,0);
+  assert.equal(alerts.length,1);
+  assert.match(alerts[0],/尚未读取课表/);
+  return;
+}
+assert.equal(alerts.length,0,'unexpected alert: '+alerts.join('\n'));
 if(options.wrongSemester) {
   assert.match(panels[0].textContent,/返回学期 2026-2027:2/);
   assert.match(panels[0].textContent,/手动替换旧书签/);
@@ -112,7 +157,7 @@ assert.equal(blobs.length,resume?2:1,panels[0]?.textContent);
 const downloaded=JSON.parse(await blobs[blobs.length-1].text());
 assert.equal(downloaded.format,'shsmu-capture-v1');
 assert.equal(downloaded.complete,true);
-assert.equal(downloaded.collector_revision,'2026-09-06.6');
+assert.equal(downloaded.collector_revision,'2026-09-06.8');
 assert.equal(downloaded.responses.length,7);
 assert.match(downloaded.account_key,/^[a-f0-9]{64}$/);
 assert.equal(calls.filter(call=>call.path==='/Home').length,0,'identity must come from the normal visible homepage, with no extra Home request');
@@ -142,5 +187,8 @@ await executeBookmark('text/html',false,false,true,false,true);
 await executeBookmark('application/json',false,false,false,false,false,false,{wrongSemester:true});
 await executeBookmark('application/json',false,false,false,false,false,false,{blockDownload:true});
 await executeBookmark('application/json',false,false,false,false,false,false,{repeatDownload:true});
+await executeBookmark('application/json',false,false,false,false,false,false,{xhrOnly:true});
+for(const unsupported of ['crypto','ie','download'])
+  await executeBookmark('application/json',false,false,false,false,false,false,{unsupported});
 if(process.argv[2])await fs.writeFile(process.argv[2],JSON.stringify(downloaded));
 console.log('PASS (synthetic): generated bookmark execution, exact details, privacy, empty months, JSON content types, diagnostic-only failures, bounded retries and resumed complete capture without rereading completed requests.');

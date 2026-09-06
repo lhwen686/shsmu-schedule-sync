@@ -50,9 +50,13 @@ class WakeUpTests(unittest.TestCase):
         first, second = item(), item(2)
         second['event'].update(Start='2026-09-27T08:00:00', End='2026-09-27T09:30:00')
         second['details'][0].update(ClassTime='2026-09-27T00:00:00', WeekNum=3)
-        parsed = rows(build_export(*prepared([second, first]))[0])
+        content, _, report = build_export(*prepared([second, first]))
+        parsed = rows(content)
         self.assertEqual([row[-1] for row in parsed[1:]], ['1', '3'])
         self.assertEqual(parsed[2][1], '7')
+        self.assertEqual(report['semester_weeks'], 3)
+        self.assertEqual(report['course_start'], '2026-09-07')
+        self.assertEqual(report['course_end'], '2026-09-27')
 
     def test_split_details_union_and_evening(self):
         value = item()
