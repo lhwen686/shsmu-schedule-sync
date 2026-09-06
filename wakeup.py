@@ -25,6 +25,28 @@ def slot_times():
     return result
 
 
+def load_slot_times(root):
+    path = root / 'local/wakeup-slots.json'
+    if not path.exists():
+        return None
+    try:
+        values = json.loads(path.read_text(encoding='utf-8-sig'))
+    except (OSError, ValueError, UnicodeError):
+        raise DataError('无法读取 local/wakeup-slots.json；请对照 wakeup-slots.example.json 检查 UTF-8 JSON。') from None
+    if not isinstance(values, list) or len(values) != 14:
+        raise DataError('自定义作息应依次列出 1–14 节的上课、下课时间；请对照 wakeup-slots.example.json。')
+    times = {}
+    previous_end = ''
+    for number, pair in enumerate(values, 1):
+        if (not isinstance(pair, list) or len(pair) != 2
+                or any(not isinstance(v, str) or not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', v) for v in pair)
+                or not previous_end <= pair[0] < pair[1]):
+            raise DataError(f'自定义作息第 {number} 节无效；请使用 HH:MM，保证下课晚于上课，且与上一节不重叠。')
+        times[number] = tuple(v + ':00' for v in pair)
+        previous_end = pair[1]
+    return times
+
+
 def detail_slots(details):
     slots = set()
     if not details:
@@ -40,7 +62,7 @@ def detail_slots(details):
     return ordered
 
 
-def build_export(snapshot, bundle):
+def build_export(snapshot, bundle, times=None):
     """Validate everything before producing bytes; never alter snapshot identities."""
     scope = snapshot['scope']
     if (bundle.get('complete') is not True or bundle.get('account_key') != scope['account_key']
@@ -64,7 +86,8 @@ def build_export(snapshot, bundle):
                 or any(saved.get(k) != v for k, v in event.items() if k != 'identity_aliases')):
             raise DataError('当前课程内容与原始采集不一致，未导出 WakeUp 文件。')
 
-    times = slot_times()
+    custom_times = times is not None
+    times = slot_times() if times is None else times
     mapped = {}
     week_starts = set()
     observed_start, observed_end = set(), set()
@@ -76,7 +99,9 @@ def build_export(snapshot, bundle):
         first, last = slots[0], slots[-1]
         if (event['date'] != event['end_date'] or event['start_time'] != times[first][0]
                 or event['end_time'] != times[last][1]):
-            raise DataError('课程起止时间与已选作息表不一致，未导出；请核对课程时间和节次。')
+            raise DataError(f"课程起止时间与已选作息表不一致：{event['date']} 第 {first}–{last} 节，"
+                            f"课程为 {event['start_time'][:5]}–{event['end_time'][:5]}，作息为 {times[first][0][:5]}–{times[last][1][:5]}。"
+                            '未导出；可复制 wakeup-slots.example.json 为 local/wakeup-slots.json，按本人作息修改后重试。')
         day = date.fromisoformat(event['date'])
         weeks = set()
         for detail in item['details']:
@@ -128,12 +153,15 @@ def build_export(snapshot, bundle):
         '作息表（“已确认”仅表示原始课程明确给出了该起点或终点）：',
         '节次\t上课\t上课依据\t下课\t下课依据',
     ]
+    unobserved = '自定义' if custom_times else '推算'
     for number, (start, end) in times.items():
-        lines.append(f"{number}\t{start[:5]}\t{'已确认' if number in observed_start else '推算'}\t"
-                     f"{end[:5]}\t{'已确认' if number in observed_end else '推算'}")
+        lines.append(f"{number}\t{start[:5]}\t{'已确认' if number in observed_start else unobserved}\t"
+                     f"{end[:5]}\t{'已确认' if number in observed_end else unobserved}")
     lines += [
-        '', '推算规则：第 1–5 节从 08:00 起，第 6–14 节从 13:30 起；每节 40 分钟，相邻节次间隔 10 分钟。',
-        '全部有效课程的实际起止时间均已与表中对应节次核对；中间休息时间部分仍为推算，这不是学校官方作息表。',
+        '', ('自定义作息来源：local/wakeup-slots.json；未被原始课程端点确认的时间标为“自定义”。' if custom_times else
+             '推算规则：第 1–5 节从 08:00 起，第 6–14 节从 13:30 起；每节 40 分钟，相邻节次间隔 10 分钟。'),
+        ('全部有效课程起止时间已与表中节次核对；“自定义”边界由本人配置，不代表学校已确认。' if custom_times else
+         '全部有效课程的实际起止时间均已与表中对应节次核对；中间休息时间部分仍为推算，这不是学校官方作息表。'),
         '仅导出课程名称、星期、节次、教师、地点、周数；授课内容和备注不在 WakeUp 七列模板中。',
         '课程时间重叠时保留全部课程，请在 App 中检查冲突显示。', '',
         '以后更新：先完成原来的课表同步，再双击“导出 WakeUp 课表.cmd”，将新 CSV 手动导入到新课表。',
@@ -157,7 +185,7 @@ def export_current(root: Path):
         if not capture.is_file():
             raise DataError('当前完整版本缺少原始教师详情，请在保留个人数据的本地项目中导出。')
         bundle = json.loads(capture.read_text(encoding='utf-8'))
-        csv_bytes, guide, report = build_export(snapshot, bundle)
+        csv_bytes, guide, report = build_export(snapshot, bundle, load_slot_times(root))
         atomic_write(root / 'output/wakeup导入说明.txt', guide)
         atomic_write(root / 'output/wakeup.csv', csv_bytes)
         return report

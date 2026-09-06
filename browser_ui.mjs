@@ -1,5 +1,6 @@
 // Bundled with browser_transport.mjs and browser_capture.mjs by prepare.py.
 export async function runBookmark(config) {
+  const revision = '2026-09-06.6';
   if (location.origin !== 'https://jwstu.shsmu.edu.cn') {
     alert('请先在现有 Chrome 打开并正常登录 https://jwstu.shsmu.edu.cn/Home，再点击书签。');
     return;
@@ -11,15 +12,16 @@ export async function runBookmark(config) {
     panel.id = 'shsmu-sync-status';
     document.body.append(panel);
   }
-  panel.style.cssText = 'position:fixed;right:18px;top:18px;z-index:2147483647;background:#fff;border:2px solid #12636a;border-radius:12px;padding:18px;max-width:520px;font:16px/1.6 sans-serif;color:#123;box-shadow:0 4px 30px #0003;white-space:pre-line';
+  panel.style.cssText = 'position:fixed;right:18px;top:18px;z-index:2147483647;background:#fff;border:2px solid #12636a;border-radius:12px;padding:18px;width:520px;max-width:calc(100vw - 36px);max-height:calc(100vh - 36px);box-sizing:border-box;overflow:auto;font:16px/1.6 sans-serif;color:#123;box-shadow:0 4px 30px #0003;white-space:pre-line';
   const checkpoint = new Map();
   const keyFor = (path, params) => path + JSON.stringify(Object.fromEntries(Object.entries(params).sort(([a],[b])=>a.localeCompare(b))));
-  let checkpointAccount = '', started = 0, stage = '', trace = [];
-  const status = message => { stage = message; panel.textContent = message; };
+  let checkpointAccount = '', started = 0, stage = '', trace = [], completed = null, downloadFailed = false;
+  const heading = `课表采集 ${revision} · ${config.semester}\n`;
+  const status = message => { stage = message; panel.textContent = heading + message; };
   const read = createSchoolReader(location.origin, {observe:entry => {
     trace.push(entry);
     if (entry.state === 'retry')
-      panel.textContent = stage + '\n请求暂未完成，稍后进行第 ' + (entry.attempt + 1) + '/3 次尝试…';
+      panel.textContent = heading + stage + '\n请求暂未完成，稍后进行第 ' + (entry.attempt + 1) + '/3 次尝试…';
   }});
   function download(prefix, value) {
     const blob = new Blob([JSON.stringify(value)], {type:'application/json;charset=utf-8'});
@@ -27,10 +29,13 @@ export async function runBookmark(config) {
     link.href = url;
     link.download = prefix + new Date().toISOString().replace(/[:.]/g,'-') + '.json';
     link.style.display = 'none';
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    try {
+      document.body.append(link);
+      link.click();
+    } finally {
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    }
   }
   function button(label, action) {
     const element = document.createElement('button');
@@ -42,6 +47,8 @@ export async function runBookmark(config) {
   async function run() {
     if (panel.dataset.busy === 'true') return;
     panel.dataset.busy = 'true';
+    completed = null;
+    downloadFailed = false;
     trace = [];
     try {
       await collectSchedule(config, {
@@ -70,18 +77,19 @@ export async function runBookmark(config) {
         // Only schema-validated, scrubbed timetable responses are retained.
         onResponse:record => checkpoint.set(keyFor(record.path, record.params), record),
         saveCapture:async capture => {
-          download('shsmu-capture-', {...capture, collector_revision:'2026-09-06.5',
-            started_at:new Date(started).toISOString()});
+          completed = {...capture, collector_revision:revision, started_at:new Date(started).toISOString()};
+          try { download('shsmu-capture-', completed); } catch { downloadFailed = true; }
           checkpoint.clear();
           checkpointAccount = '';
         }
       });
+      if (downloadFailed) status('采集完成，但下载未能发起。请点击“重新下载采集文件”，并查看 Chrome 下载提示。无需重新采集。');
     } catch (error) {
       const code = error?.code ?? 'DATA_VALIDATION';
       if (code === 'HOMEPAGE_REQUIRED') {
         checkpoint.clear();
         checkpointAccount = '';
-        panel.textContent = '请先打开教务首页，完成正常登录后，在首页再次点击“同步医学院课表”书签。';
+        panel.textContent = heading + '请先打开教务首页，完成正常登录后，在首页再次点击“同步医学院课表”书签。';
         const home = document.createElement('a');
         home.href = 'https://jwstu.shsmu.edu.cn/Home';
         home.textContent = '前往教务首页';
@@ -91,15 +99,15 @@ export async function runBookmark(config) {
       }
       const request = error?.request ?? null;
       const message = error?.code ? error.message : '课表响应未通过数据校验';
-      const diagnostic = {format:'shsmu-diagnostic-v1', collector_revision:'2026-09-06.5',
+      const diagnostic = {format:'shsmu-diagnostic-v1', collector_revision:revision,
         origin:location.origin, config, complete:false, observed_at:new Date().toISOString(),
         failure:{stage, code, request}, request_log:trace, responses:[...checkpoint.values()]};
-      panel.textContent = '采集未完成：' + message + '\n位置：' + stage +
+      panel.textContent = heading + '采集未完成：' + message + '\n位置：' + stage +
         (request ? '\n接口：' + request.path + '（尝试 ' + request.attempt + ' 次）' : '') +
         '\n已读取 ' + checkpoint.size + ' 份课表响应；本地旧课表保留。';
       try {
         download('shsmu-diagnostic-', diagnostic);
-        panel.textContent += '\n已下载诊断 JSON，可用于定位问题。';
+        panel.textContent += '\n已发起诊断 JSON 下载，可用于定位问题；它不能用于导入课表。';
       } catch {
         panel.textContent += '\n诊断文件未能下载，请保留此提示。';
       }
@@ -112,7 +120,14 @@ export async function runBookmark(config) {
       }
     } finally {
       panel.dataset.busy = 'false';
-      button('关闭提示', () => { checkpoint.clear(); panel.remove(); });
+      if (completed) {
+        button('重新下载采集文件', () => {
+          if (!completed) return;
+          try { download('shsmu-capture-', completed); }
+          catch { alert('下载未能发起，请保留本页并检查 Chrome 下载提示后重试。'); }
+        });
+      }
+      button('关闭提示', () => { checkpoint.clear(); completed = null; panel.remove(); });
     }
   }
   await run();

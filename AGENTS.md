@@ -10,4 +10,6 @@
 - Limit changes to the requested scope and keep dependencies small. Do not deploy or alter an existing server unless that server operation is authorized.
 - WebCal is optional and represents one private calendar per backend instance. Published service files are deployment references, not a hosted multi-user service.
 
-- Run 检查项目.cmd or python -X utf8 check.py to discover all Python and JavaScript tests, including workflow and WakeUp tests. Bookmark revision 2026-09-06.5 must be manually reinstalled after this update.
+- Run 检查项目.cmd or python -X utf8 check.py to discover all Python and JavaScript tests, including workflow, usability and WakeUp tests. Bookmark revision 2026-09-06.6 must be manually reinstalled after this update.
+- Preserve CRLF bytes in CMD repository blobs for ZIP downloads. Already downloaded files can be selected with 导入已下载课表.cmd or dragged onto 同步课表.cmd; never silently import older files at startup.
+- --new-term cannot switch accounts and must preserve history when the scope is unchanged. Optional WakeUp times live in ignored local/wakeup-slots.json and must match every actual event endpoint.

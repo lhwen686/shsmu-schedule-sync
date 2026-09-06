@@ -1,5 +1,6 @@
 * text=auto
-*.cmd text eol=crlf
+# Preserve CRLF in repository blobs, including GitHub ZIP downloads.
+*.cmd -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 *.py text eol=lf
 *.mjs text eol=lf
 *.service text eol=lf

@@ -23,14 +23,25 @@ def load_config(root):
     path = root / "local/webcal.json"
     if not path.exists():
         return None
-    config = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        config = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError, UnicodeError):
+        raise UploadError("无法读取 local/webcal.json；请检查 UTF-8 JSON 格式和文件权限，不需要重新采集学校。") from None
+    if not isinstance(config, dict) or type(config.get('enabled', False)) is not bool:
+        raise UploadError("local/webcal.json 必须是 JSON 对象，enabled 必须为 true 或 false。")
     if not config.get("enabled", False):
         return None
-    url = urlsplit(config.get("origin", ""))
+    try:
+        if not isinstance(config.get('origin'), str):
+            raise ValueError
+        url = urlsplit(config['origin'])
+        url.port
+    except ValueError:
+        raise UploadError("日历发布 origin 或端口无效；请对照部署说明修正 local/webcal.json。") from None
     if (url.scheme != "https" or not url.hostname or url.username or url.password
             or url.path not in ("", "/") or url.query or url.fragment):
         raise UploadError("日历发布地址必须为不含凭证的 HTTPS 源站地址。")
-    if not all(re.fullmatch(r"[A-Za-z0-9_-]{43}", config.get(key, "")) for key in ("read_token", "write_token")):
+    if not all(isinstance(config.get(key), str) and re.fullmatch(r"[A-Za-z0-9_-]{43}", config[key]) for key in ("read_token", "write_token")):
         raise UploadError("日历发布密钥配置无效。")
     if config["read_token"] == config["write_token"]:
         raise UploadError("订阅密钥与上传密钥必须不同。")
@@ -83,6 +94,7 @@ def publish_current(root, required=False):
     if config is None:
         if required:
             raise UploadError("尚未启用 WebCal，请先完成 local/webcal.json 配置。")
+        print("未启用 WebCal，已完成本地处理；可使用 output/calendar.ics，手机订阅不会自动更新。", flush=True)
         return None
     payload = make_payload(root)
     body = json.dumps(payload, separators=(",", ":")).encode()

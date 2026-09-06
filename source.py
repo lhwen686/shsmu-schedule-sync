@@ -36,22 +36,38 @@ def request_key(path, params):
 
 class CaptureSource:
     def __init__(self, capture_path: Path, config):
-        if capture_path.stat().st_size > 20_000_000:
-            raise SourceError("采集文件超过预期大小。")
-        self.capture = scrub(json.loads(capture_path.read_text(encoding="utf-8-sig")))
+        try:
+            if capture_path.stat().st_size > 20_000_000:
+                raise SourceError("采集文件超过预期大小。")
+            self.capture = scrub(json.loads(capture_path.read_text(encoding="utf-8-sig")))
+        except OSError:
+            raise SourceError("无法读取采集文件，请确认已下载完成，或用“导入已下载课表.cmd”重新选择 JSON。") from None
+        except (ValueError, UnicodeError):
+            raise SourceError("采集文件不是完整的 UTF-8 JSON。请等待下载完成，或在采集完成面板点击“重新下载采集文件”。") from None
+        if not isinstance(self.capture, dict):
+            raise SourceError("文件不是课表 JSON 对象，请选择 shsmu-capture 开头的完整采集文件。")
+        if self.capture.get('format') == 'shsmu-diagnostic-v1':
+            raise SourceError("这是失败诊断文件，不能导入课表；请按 Chrome 提示继续或重新采集，选择 shsmu-capture 开头的文件。")
         if self.capture.get("format") != "shsmu-capture-v1" or self.capture.get("complete") is not True:
             raise SourceError("文件不是已经完整采集的课表响应。")
         if self.capture.get("origin") != ORIGIN:
             raise SourceError("采集文件的来源不符。")
+        if not isinstance(self.capture.get('config'), dict):
+            raise SourceError("采集文件缺少有效学期配置，请重新采集。")
         for key in ("semester", "start", "end_exclusive"):
             if self.capture.get("config", {}).get(key) != config[key]:
-                raise SourceError("采集文件日期或学期与本机配置不同，请重新生成书签并采集。")
+                raise SourceError("采集文件日期或学期与本机配置不同。请运行 sync.py --prepare，刷新安装页并手动替换旧书签网址，再采集。")
         self.account_key = self.capture.get("account_key", "")
-        if not re.fullmatch(r"[a-f0-9]{64}", self.account_key):
+        if not isinstance(self.account_key, str) or not re.fullmatch(r"[a-f0-9]{64}", self.account_key):
             raise SourceError("缺少登录账号的本地匿名校验标识。")
         self.request_count = 0
         self.records = {}
-        for record in self.capture.get("responses", []):
+        records = self.capture.get('responses')
+        if not isinstance(records, list):
+            raise SourceError("采集文件缺少完整响应列表，请重新采集。")
+        for record in records:
+            if not isinstance(record, dict) or not isinstance(record.get('params'), dict) or 'response' not in record:
+                raise SourceError("采集文件中的响应记录不完整，请重新采集。")
             if record.get("path") not in ENDPOINTS:
                 raise SourceError("采集文件包含未核实的数据来源。")
             key = request_key(record["path"], record["params"])

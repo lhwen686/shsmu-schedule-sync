@@ -34,9 +34,10 @@ const html=await fs.readFile(new URL('./chrome-bookmark.html',import.meta.url),'
 const href=html.match(/class="bookmark" href="([^"]+)"/)[1].replaceAll('&amp;','&').replaceAll('&#x27;',"'");
 const script=decodeURIComponent(href.slice('javascript:'.length));
 new vm.Script(script);
-async function executeBookmark(contentType, malformed=false, redirect=false, resume=false, wrongPage=false, changeAccount=false, emptyDetails=false) {
+async function executeBookmark(contentType, malformed=false, redirect=false, resume=false, wrongPage=false, changeAccount=false, emptyDetails=false, options={}) {
 const blobs=[],panels=[],calls=[];
 let failures=resume?3:0;
+let downloadBlocked=options.blockDownload;
 function element() {
   let value='';
   return {dataset:{},style:{},children:[],
@@ -45,7 +46,7 @@ function element() {
     append(child){this.children.push(child);},
     click(){return this.onclick?.();},remove(){}};
 }
-class TestURL extends URL {static createObjectURL(b){blobs.push(b);return 'blob:test';} static revokeObjectURL(){}}
+class TestURL extends URL {static createObjectURL(b){if(downloadBlocked){downloadBlocked=false;throw new Error('synthetic download failure');}blobs.push(b);return 'blob:test';} static revokeObjectURL(){}}
 const sandbox={location:{origin:'https://jwstu.shsmu.edu.cn',pathname:wrongPage?'/Home/Timetable':'/Home'},URL:TestURL,URLSearchParams,TextEncoder,Blob,crypto:webcrypto,
   AbortSignal,Date,Map,Set,Promise,Error,JSON,Number,String,Array,Object,alert:()=>assert.fail('unexpected alert'),
   setTimeout:fn=>{fn();return 1;},
@@ -55,11 +56,27 @@ const sandbox={location:{origin:'https://jwstu.shsmu.edu.cn',pathname:wrongPage?
     const url=new URL(input),path=url.pathname;
     calls.push({path,params:Object.fromEntries(url.searchParams)});
     if(url.searchParams.get('MCSID')==='21,22'&&failures-->0)throw new TypeError('Failed to fetch');
-    return {ok:true,status:200,type:'basic',url:redirect&&path!=='/Home'?'https://auth2.shsmu.edu.cn/cas/login':String(url),headers:{get:()=>contentType},text:async()=>path==='/Home'?'<html>synthetic account page</html>':malformed?'<html>Login required</html>':JSON.stringify(emptyDetails&&path==='/Home/GetCalendarTable'?[]:response(path,Object.fromEntries(url.searchParams)))};
+    const data=response(path,Object.fromEntries(url.searchParams));
+    if(options.wrongSemester&&data.List?.length)data.Title='2026-2027 学年 第2 学期';
+    return {ok:true,status:200,type:'basic',url:redirect&&path!=='/Home'?'https://auth2.shsmu.edu.cn/cas/login':String(url),headers:{get:()=>contentType},text:async()=>path==='/Home'?'<html>synthetic account page</html>':malformed?'<html>Login required</html>':JSON.stringify(emptyDetails&&path==='/Home/GetCalendarTable'?[]:data)};
   }
 };
 vm.createContext(sandbox);
 await vm.runInContext(script.replace(/^void/,''),sandbox);
+if(options.wrongSemester) {
+  assert.match(panels[0].textContent,/返回学期 2026-2027:2/);
+  assert.match(panels[0].textContent,/手动替换旧书签/);
+  assert.equal(JSON.parse(await blobs[0].text()).format,'shsmu-diagnostic-v1');
+  assert.equal(calls.length,1);
+  return;
+}
+if(options.blockDownload) {
+  assert.equal(blobs.length,0);
+  assert.match(panels[0].textContent,/下载未能发起/);
+  const count=calls.length;
+  await panels[0].children.find(child=>child.textContent==='重新下载采集文件').click();
+  assert.equal(calls.length,count,'retry download must not contact school');
+}
 if(wrongPage) {
   assert.equal(calls.length,0,'guide to the normal homepage without subrequesting it');
   assert.equal(blobs.length,0);
@@ -95,10 +112,23 @@ assert.equal(blobs.length,resume?2:1,panels[0]?.textContent);
 const downloaded=JSON.parse(await blobs[blobs.length-1].text());
 assert.equal(downloaded.format,'shsmu-capture-v1');
 assert.equal(downloaded.complete,true);
+assert.equal(downloaded.collector_revision,'2026-09-06.6');
 assert.equal(downloaded.responses.length,7);
 assert.match(downloaded.account_key,/^[a-f0-9]{64}$/);
 assert.equal(calls.filter(call=>call.path==='/Home').length,0,'identity must come from the normal visible homepage, with no extra Home request');
 assert(!JSON.stringify(downloaded).includes('must-be-omitted'));
+if(options.repeatDownload) {
+  const count=calls.length;
+  const retry=panels[0].children.find(child=>child.textContent==='重新下载采集文件');
+  assert(retry);
+  await retry.click();
+  assert.equal(await blobs.at(-1).text(),await blobs.at(-2).text(),'same capture and fetched_at, not a new sync');
+  assert.equal(calls.length,count);
+  await panels[0].children.find(child=>child.textContent==='关闭提示').click();
+  const blobCount=blobs.length;
+  await retry.click();
+  assert.equal(blobs.length,blobCount,'closing panel discards retained capture');
+}
 return downloaded;
 }
 let downloaded;
@@ -109,5 +139,8 @@ await executeBookmark('text/html',false,true);
 await executeBookmark('text/html',false,false,true);
 await executeBookmark('text/html',false,false,false,true);
 await executeBookmark('text/html',false,false,true,false,true);
+await executeBookmark('application/json',false,false,false,false,false,false,{wrongSemester:true});
+await executeBookmark('application/json',false,false,false,false,false,false,{blockDownload:true});
+await executeBookmark('application/json',false,false,false,false,false,false,{repeatDownload:true});
 if(process.argv[2])await fs.writeFile(process.argv[2],JSON.stringify(downloaded));
 console.log('PASS (synthetic): generated bookmark execution, exact details, privacy, empty months, JSON content types, diagnostic-only failures, bounded retries and resumed complete capture without rereading completed requests.');
