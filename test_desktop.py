@@ -505,6 +505,34 @@ class DesktopTests(unittest.TestCase):
             pass
 
 
+    def test_wakeup_reminders_follow_export_instead_of_fixed_autumn_defaults(self):
+        from datetime import timedelta
+        from desktop import wakeup_setup_reminder
+        report = self.service.run(capture=write_capture(self.root))['report']
+        title, body = wakeup_setup_reminder(report)
+        self.assertIn('40 分钟', title)
+        self.assertIn('2026-09-07', body)
+        self.assertIn('不要保留 9 月 4 日', body)
+
+        # Another valid time table/term must not receive this autumn's instructions.
+        report = json.loads(json.dumps(report))
+        report['first_monday'] = '2027-03-01'
+        for number, (start, end) in report['slot_times'].items():
+            hour, minute, second = map(int, start.split(':'))
+            later = timedelta(hours=hour, minutes=minute + 45)
+            seconds = int(later.total_seconds())
+            report['slot_times'][number] = [start, f'{seconds // 3600:02}:{seconds // 60 % 60:02}:00']
+        title, body = wakeup_setup_reminder(report)
+        self.assertIn('45 分钟', title)
+        self.assertIn('2027-03-01', body)
+        self.assertNotIn('40 分钟', title + body)
+        self.assertNotIn('9 月', title + body)
+        report['slot_times']['1'][1] = '08:30:00'
+        title, body = wakeup_setup_reminder(report)
+        self.assertIn('逐节', title)
+        self.assertIn('本次各节时长不同', body)
+
+
 class DesktopWidgetTests(unittest.TestCase):
     def setUp(self):
         import tkinter as tk

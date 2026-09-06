@@ -24,6 +24,22 @@ from wakeup import load_slot_times, slot_times
 BG, INK, GREEN, MUTED = '#edf4f0', '#213d36', '#176b54', '#587268'
 
 
+def wakeup_setup_reminder(report):
+    """Describe the committed export's settings, including custom terms/times."""
+    first = date.fromisoformat(report['first_monday'])
+    durations = {(datetime.strptime(end, '%H:%M:%S') - datetime.strptime(start, '%H:%M:%S')).seconds // 60
+                 for start, end in report['slot_times'].values()}
+    duration = f'{next(iter(durations))} 分钟' if len(durations) == 1 else '逐节核对作息'
+    time_action = (f'导入后请手动将上课时长改为 {duration}。' if len(durations) == 1 else
+                   '本次各节时长不同，请对照设置卡逐节填写上下课时间。')
+    date_action = f'学期第一天请设为 {first:%Y-%m-%d}（{first.month}.{first.day}）。'
+    if first == date(2026, 9, 7):
+        date_action += '不要保留 9 月 4 日（9.4）。'
+    return (f'导入 WakeUp 后必改：{duration} · {first.month} 月 {first.day} 日',
+            '50 分钟来自 WakeUp 当前的作息设置，CSV 不会自动修改它。' + time_action + '\n' +
+            date_action + '\n打开“查看 WakeUp 导入指引与作息”，对照本次课表的设置卡完成。')
+
+
 def readable_time(value):
     try:
         return datetime.fromisoformat(value.replace('Z', '+00:00')).astimezone(ZoneInfo('Asia/Shanghai')).strftime('%Y年%m月%d日 %H:%M')
@@ -68,6 +84,8 @@ class AssistantWindow:
         self.details = []
         self.last_result = None
         self.phone_guide = None
+        self.browser_collection = False
+        self.startup_notice_pending = True
         self.poll_id = None
         self.status = tk.StringVar(value='')
         self.window.title('医学院课表助手')
@@ -127,6 +145,9 @@ class AssistantWindow:
         style.configure('Small.TLabel', background='white', foreground=MUTED, font=('Microsoft YaHei UI', 10))
         style.configure('Title.TLabel', background='white', foreground=INK, font=('Microsoft YaHei UI', 23, 'bold'))
         style.configure('Section.TLabel', background='white', foreground=INK, font=('Microsoft YaHei UI', 14, 'bold'))
+        style.configure('Notice.TFrame', background='#edf6f0')
+        style.configure('NoticeTitle.TLabel', background='#edf6f0', foreground=GREEN, font=('Microsoft YaHei UI', 14, 'bold'))
+        style.configure('NoticeBody.TLabel', background='#edf6f0', foreground=INK, font=('Microsoft YaHei UI', 10))
         style.configure('TButton', padding=(14, 9), background='#e6eee9', foreground=INK)
         style.configure('Primary.TButton', background=GREEN, foreground='white', padding=(20, 12), font=('Microsoft YaHei UI', 12, 'bold'))
         style.map('Primary.TButton', background=[('disabled', '#d8e4dc'), ('active', '#12563f')], foreground=[('disabled', MUTED)])
@@ -145,7 +166,7 @@ class AssistantWindow:
         self.canvas.itemconfigure(self.canvas_item, width=event.width)
         for widget in self.wrapping:
             if widget.winfo_exists():
-                widget.configure(wraplength=max(400, event.width - 64))
+                widget.configure(wraplength=max(240, event.width - 64 - getattr(widget, 'wrap_inset', 0)))
 
     def _content_configured(self, event):
         self.canvas.configure(scrollregion=self.canvas.bbox('all'))
@@ -168,6 +189,23 @@ class AssistantWindow:
         self.label(title, 'Title.TLabel', (4, 14))
         if description:
             self.label(description, pady=(0, 18))
+        if self.startup_notice_pending:
+            self.startup_notice_pending = False
+            self.notice('安全软件提示',
+                        '杀毒软件有时会把正常软件当成病毒。请使用作者发的软件或下载链接。'
+                        '如果出现提醒、拿不准该点什么，把提示截图发给作者，确认后再继续打开。')
+
+    def notice(self, title, description):
+        band = tk.Frame(self.content, background=GREEN)
+        band.pack(fill='x', pady=(0, 16))
+        body = ttk.Frame(band, style='Notice.TFrame', padding=(14, 12))
+        body.pack(fill='x', padx=(5, 0))
+        for text, style, spacing in ((title, 'NoticeTitle.TLabel', (0, 6)),
+                                     (description, 'NoticeBody.TLabel', (0, 0))):
+            label = self.label(text, style, spacing, parent=body)
+            label.wrap_inset = 34
+            label.configure(wraplength=max(240, self.canvas.winfo_width() - 98))
+        return band
 
     def label(self, text, style='Body.TLabel', pady=(0, 10), parent=None):
         widget = ttk.Label(parent or self.content, text=text, style=style,
@@ -286,6 +324,7 @@ class AssistantWindow:
         self.details = []
         self.last_result = None
         self.running = True
+        self.browser_collection = capture is None and not export_only
         self.status.set('正在准备接收…' if capture is None and not export_only else '正在准备处理…')
         self.show_work()
         self.job.start(capture=capture, export_only=export_only)
@@ -294,9 +333,12 @@ class AssistantWindow:
         self.clear('电脑正在处理 · 请保持助手打开', '获取你的课表',
                    '这里会显示接收和处理结果。浏览器中的学校页面显示实际采集进度。')
         self.status_label()
-        self.button('复制教务首页地址', lambda: self.copy_text(HOME_URL))
-        self.label('准备好接收后，在添加了课表按钮的同一个浏览器正常登录教务首页，看到本人学号后点击“同步医学院课表”。', 'Body.TLabel')
-        self.label('请保持学校页面打开。完整读取通常需要几分钟；以网页实际进度为准。', 'Small.TLabel')
+        if self.browser_collection:
+            self.notice('下一步：请点击浏览器书签“同步医学院课表”',
+                        '等助手显示“已准备好接收”后，在添加书签的同一个浏览器登录教务首页。\n'
+                        '看到本人学号后，点击书签栏 / 收藏夹栏中的“同步医学院课表”，才会开始采集。')
+            self.button('复制教务首页地址', lambda: self.copy_text(HOME_URL))
+            self.label('点击书签后，保持学校页面和助手打开；实际采集进度请看教务网页。', 'Small.TLabel')
         self.picker_button = self.button('文件已经下载', self.pick_capture, enabled=self.job.stage == 'waiting')
         self.cancel_button = self.button('取消本次操作', self.cancel, enabled=self.job.stage not in ('committing', 'exporting'))
         self.button('查看处理详情', self.show_details)
@@ -325,6 +367,9 @@ class AssistantWindow:
                 elif stage == 'error':
                     self.show_issue(value)
                 else:
+                    if self.browser_collection and stage in ('processing', 'committing', 'exporting'):
+                        self.browser_collection = False
+                        self.show_work()
                     self.details.append(str(value))
                     if stage == 'waiting':
                         if '失败诊断' in value:
@@ -371,6 +416,8 @@ class AssistantWindow:
             self.label(name, 'Section.TLabel', (10, 8))
             if ready is not None:
                 self.label(f"文件已就绪 · {ready['event_count']} 次课程。{delivery}", 'Small.TLabel')
+                if name == 'WakeUp':
+                    self.notice(*wakeup_setup_reminder(ready))
             elif issue is not None:
                 self.label(issue.title + '。' + issue.next_step, 'Small.TLabel')
                 self.details.append(issue.detail)
@@ -409,6 +456,7 @@ class AssistantWindow:
                    '2. WakeUp → 导入课表 → Excel 导入 → 选取 CSV 文件。\n'
                    '3. 选择刚才的文件，导入到一个新课表。\n'
                    '4. 按下面的设置卡检查日期和上课时间。')
+        self.notice(*wakeup_setup_reminder(report))
         self.label('本次课表的设置卡', 'Section.TLabel')
         self.label(f"学期开始日期：{report['first_monday']}（第一周周一）\n"
                    f"WakeUp 课表周数：{report['semester_weeks']}（按本次课程自动计算）\n"
