@@ -25,3 +25,6 @@
 
 - The first-run student flow asks for the semester only. The verified 2026-27 autumn desktop range includes winter break through 2027-02-21, based on the published spring start of 2027-02-22. Do not infer another term or internship range from this one. Existing ranges change only after the semester action; explicit custom ranges remain unchanged.
 - A complete same-account, same-semester superset capture preserves UID aliases, revisions and cancellation history. Do not reset history when extending coverage. WakeUp week count and displayed last class date come from the currently captured courses, not the query cutoff; newly published courses need another sync.
+
+- WakeUp CSV and Apple ICS exports have independent readiness and phone confirmations. Apple readiness validates the committed snapshot and exact ICS bytes; it does not depend on WakeUp slots.
+- Without a committed timetable, reopening the desktop app resumes bookmark setup even when a previous acknowledgement exists. Acknowledging during the current session allows first collection; a saved complete timetable enables the update home. Do not reset stored acknowledgements or histories to implement this routing.

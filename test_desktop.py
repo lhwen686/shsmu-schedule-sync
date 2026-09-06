@@ -1,5 +1,6 @@
 """Desktop workflow acceptance in disposable directories, never a live account."""
 import json
+import hashlib
 import shutil
 import tempfile
 import threading
@@ -8,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 from datetime import date
+from icalendar import Calendar
 
 import sync
 from core import DataError
@@ -84,6 +86,32 @@ class DesktopTests(unittest.TestCase):
         reopened.confirm_term()
         self.assertEqual(reopened.config()['end_exclusive'], '2027-02-22')
         self.assertEqual(reopened.setup_step(), 2)
+        self.assertEqual(self.state_bytes(), before)
+
+    def test_bookmark_confirmation_without_capture_resumes_guide_on_reopen(self):
+        self.service.confirm_term()
+        self.service.acknowledge_bookmark()
+        self.assertEqual(self.service.setup_step(), 0)
+        state_before = (self.root / 'local/desktop-state.json').read_bytes()
+        config_before = self.service.config_path.read_bytes()
+        reopened = DesktopService(self.root)
+        reopened.initialize()
+        self.assertEqual(reopened.setup_step(), 2)
+        self.assertEqual((self.root / 'local/desktop-state.json').read_bytes(), state_before)
+        self.assertEqual(reopened.config_path.read_bytes(), config_before)
+        reopened.acknowledge_bookmark()
+        self.assertEqual(reopened.setup_step(), 0)
+        self.assertIsNone(sync.load_current(self.root))
+        self.assertEqual(DesktopService(self.root).setup_step(), 2)
+
+    def test_completed_capture_keeps_update_home_after_reopen(self):
+        self.service.confirm_term()
+        self.service.acknowledge_bookmark()
+        self.service.run(capture=write_capture(self.root, config=self.service.config()))
+        before = self.state_bytes()
+        reopened = DesktopService(self.root)
+        reopened.initialize()
+        self.assertEqual(reopened.setup_step(), 0)
         self.assertEqual(self.state_bytes(), before)
 
     def test_collector_upgrade_updates_installer_preserving_schedule_and_config(self):
@@ -196,6 +224,9 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(result['report']['event_count'], 1)
         self.assertEqual(result['report']['first_monday'], '2026-09-07')
         self.assertTrue(self.service.ready_export())
+        self.assertEqual(result['apple_report']['event_count'], 1)
+        self.assertIsNone(result['apple_issue'])
+        self.assertEqual(self.service.ready_apple_export(), result['apple_report'])
         self.assertEqual((self.root / 'local/webcal.json').read_text(), '{invalid configuration}')
 
     def test_same_file_has_zero_changes_and_preserves_history(self):
@@ -235,6 +266,10 @@ class DesktopTests(unittest.TestCase):
         self.assertIsNone(result['report'])
         self.assertIsNone(self.service.ready_export())
         self.assertEqual((self.root / 'output/wakeup.csv').read_bytes(), csv)
+        self.assertIsNone(result['apple_issue'])
+        self.assertEqual(result['apple_report'], self.service.ready_apple_export())
+        event = Calendar.from_ical((self.root / 'output/calendar.ics').read_bytes()).walk('VEVENT')[0]
+        self.assertEqual(event.decoded('DTSTART').strftime('%H:%M'), '08:10')
         current = sync.load_current(self.root)
         pointer = (self.root / 'data/current.json').read_bytes()
         self.assertEqual(current['events'][0]['start_time'], '08:10:00')
@@ -257,6 +292,115 @@ class DesktopTests(unittest.TestCase):
         values = [[a[:5], b[:5]] for a, b in slot_times().values()]
         self.service.save_settings(CONFIG, values)
         self.assertIsNone(self.service.ready_export())
+
+    def test_apple_roundtrip_dates_unicode_and_cancellation_preserves_history(self):
+        late = item(2)
+        late['event'].update(Curriculum='中文,课程 "甲"\n第二行', ClassroomAcademy='测试楼;203',
+                             Start='2026-09-27T17:40:00', End='2026-09-27T20:50:00')
+        late['details'][0].update(ClassTime='2026-09-27T00:00:00', PKCIndex='|11||12||13||14|', WeekNum=3)
+        self.service.run(capture=write_capture(self.root, [item(), late]))
+        old_uids = {event['uid'] for event in sync.load_current(self.root)['events']}
+        result = self.service.run(capture=write_capture(self.root, [late], fetched=LATER))
+        data = (self.root / 'output/calendar.ics').read_bytes()
+        events = Calendar.from_ical(data).walk('VEVENT')
+        self.assertEqual(len(events), 2)
+        self.assertEqual({str(event['UID']) for event in events}, old_uids)
+        self.assertEqual(sorted(str(event['STATUS']) for event in events), ['CANCELLED', 'CONFIRMED'])
+        active = next(event for event in events if str(event['STATUS']) == 'CONFIRMED')
+        self.assertEqual(active.decoded('DTSTART').isoformat(), '2026-09-27T17:40:00+08:00')
+        self.assertEqual(active.decoded('DTEND').isoformat(), '2026-09-27T20:50:00+08:00')
+        self.assertEqual(str(active['DTSTART'].params['TZID']), 'Asia/Shanghai')
+        self.assertEqual(str(active['SUMMARY']), '中文,课程 "甲"\n第二行')
+        self.assertEqual(str(active['LOCATION']), '测试楼;203')
+        self.assertIn('教师：测试教师', str(active['DESCRIPTION']))
+        self.assertIn('授课内容：测试内容', str(active['DESCRIPTION']))
+        self.assertEqual(result['apple_report'], {'event_count': 1, 'course_start': '2026-09-27',
+            'course_end': '2026-09-27', 'capture_fetched_at': LATER,
+            'ics_sha256': hashlib.sha256(data).hexdigest()})
+        before = self.state_bytes()
+        repeated = self.service.run(export_only=True)
+        self.assertEqual(repeated['apple_report'], result['apple_report'])
+        self.assertEqual(before, self.state_bytes())
+
+    def test_apple_missing_modified_and_previous_version_recover_without_new_history(self):
+        self.service.run(capture=write_capture(self.root))
+        file = self.root / 'output/calendar.ics'
+        original = file.read_bytes()
+        changed = item()
+        changed['details'][0]['Teacher'] = '变更教师'
+        self.service.run(capture=write_capture(self.root, [changed], fetched=LATER))
+        current_bytes = file.read_bytes()
+        pointer = (self.root / 'data/current.json').read_bytes()
+        moved = file.with_suffix('.moved')
+        file.rename(moved)
+        self.assertIsNone(self.service.ready_apple_export())
+        self.service.run(export_only=True)
+        self.assertEqual(file.read_bytes(), current_bytes)
+        for invalid in (b'not a calendar', original):
+            file.write_bytes(invalid)
+            self.assertIsNone(self.service.ready_apple_export())
+            self.assertIsNone(self.service.run(export_only=True)['apple_issue'])
+            self.assertEqual(file.read_bytes(), current_bytes)
+        self.assertEqual((self.root / 'data/current.json').read_bytes(), pointer)
+
+    def test_apple_is_independent_of_wakeup_state_and_bad_slot_configuration(self):
+        self.service.run(capture=write_capture(self.root))
+        ready = self.service.ready_apple_export()
+        self.service.save_state(export_ready=False)
+        (self.root / 'local/wakeup-slots.json').write_text('{invalid', encoding='utf-8')
+        self.assertIsNone(self.service.ready_export())
+        self.assertEqual(self.service.ready_apple_export(), ready)
+        result = self.service.run(export_only=True)
+        self.assertIsNotNone(result['issue'])
+        self.assertIsNone(result['apple_issue'])
+        self.assertEqual(result['apple_report'], ready)
+
+    def test_apple_write_failure_is_separate_and_keeps_previous_bytes(self):
+        self.service.run(capture=write_capture(self.root))
+        file = self.root / 'output/calendar.ics'
+        file.write_bytes(b'old damaged file')
+        pointer = (self.root / 'data/current.json').read_bytes()
+        def fail_calendar(path, data):
+            if Path(path) == file:
+                raise PermissionError('synthetic write denial')
+            sync.atomic_write(path, data)
+        with patch('desktop_service.atomic_write', side_effect=fail_calendar):
+            result = self.service.run(export_only=True)
+        self.assertIsNone(result['issue'])
+        self.assertIsNone(result['apple_report'])
+        self.assertIsNotNone(result['apple_issue'])
+        self.assertNotIn('作息', result['apple_issue'].next_step)
+        self.assertEqual(file.read_bytes(), b'old damaged file')
+        self.assertIsNone(self.service.ready_apple_export())
+        self.assertIsNone(self.service.run(export_only=True)['apple_issue'])
+        self.assertIsNotNone(self.service.ready_apple_export())
+        self.assertEqual((self.root / 'data/current.json').read_bytes(), pointer)
+
+    def test_apple_requires_complete_matching_snapshot_and_respects_lock(self):
+        self.assertIsNone(self.service.ready_apple_export())
+        with self.assertRaises(DataError):
+            self.service.run(export_only=True)
+        self.service.run(capture=write_capture(self.root))
+        with sync.exclusive_sync(self.root):
+            self.assertIsNone(self.service.ready_apple_export())
+        self.service.save_settings({**CONFIG, 'end_exclusive': '2027-01-19'})
+        self.assertIsNone(self.service.ready_apple_export())
+        with self.assertRaises(DataError):
+            self.service.run(export_only=True)
+        self.service.save_settings(CONFIG)
+        pointer = json.loads((self.root / 'data/current.json').read_text(encoding='utf-8'))
+        snapshot = self.root / 'data/runs' / pointer['run_id'] / 'schedule.json'
+        snapshot.write_text('{}', encoding='utf-8')
+        self.assertIsNone(self.service.ready_apple_export())
+
+    def test_empty_capture_cannot_replace_a_ready_apple_file(self):
+        self.service.run(capture=write_capture(self.root))
+        ready = self.service.ready_apple_export()
+        before = (self.root / 'data/current.json').read_bytes()
+        with self.assertRaisesRegex(DataError, '整个学期返回空课表'):
+            self.service.run(capture=write_capture(self.root, [], fetched=LATER))
+        self.assertEqual(self.service.ready_apple_export(), ready)
+        self.assertEqual((self.root / 'data/current.json').read_bytes(), before)
 
     def test_invalid_settings_are_rejected_before_writes(self):
         config = self.service.config_path.read_bytes()
@@ -290,6 +434,7 @@ class DesktopTests(unittest.TestCase):
                                  emit=lambda stage, message: token.set() if stage == 'committing' else None)
         self.assertIsNone(result['issue'])
         self.assertIsNotNone(self.service.ready_export())
+        self.assertIsNotNone(self.service.ready_apple_export())
 
     def test_second_window_cannot_write_during_wait(self):
         with sync.exclusive_sync(self.root):
@@ -411,6 +556,124 @@ class DesktopWidgetTests(unittest.TestCase):
         self.ui.show_phone()
         self.window.update_idletasks()
         self.assertEqual(self.ui.canvas.yview()[0], 0.0)
+
+    def widgets(self, ui=None):
+        def walk(parent):
+            for child in parent.winfo_children():
+                yield child
+                yield from walk(child)
+        return list(walk((ui or self.ui).content))
+
+    def buttons(self, ui=None):
+        from tkinter import ttk
+        return {str(widget.cget('text')): widget for widget in self.widgets(ui) if isinstance(widget, ttk.Button)}
+
+    def test_startup_resumes_bookmark_guide_until_first_capture(self):
+        import tkinter as tk
+        from desktop import AssistantWindow
+        self.assertIn('就用这个学期，下一步', self.buttons())
+        self.buttons()['就用这个学期，下一步'].invoke()
+        self.assertIn('复制安装页地址', self.buttons())
+        self.assertNotIn('获取我的课表', self.buttons())
+        self.buttons()['我已添加课表按钮，进入助手'].invoke()
+        self.assertIn('获取我的课表', self.buttons())
+        self.assertIn('重新查看书签安装引导', self.buttons())
+        self.assertIn('首次导入 · 下一步获取课表',
+                      [str(w.cget('text')) for w in self.widgets() if 'text' in w.keys()])
+        for captured in (False, True):
+            with self.subTest(captured=captured):
+                if captured:
+                    self.ui.service.run(capture=write_capture(
+                        Path(self.temp.name), config=self.ui.service.config()))
+                window = tk.Tk()
+                window.withdraw()
+                reopened = AssistantWindow(window, Path(self.temp.name))
+                try:
+                    window.update_idletasks()
+                    self.assertEqual('复制安装页地址' in self.buttons(reopened), not captured)
+                    self.assertEqual('获取我的课表' in self.buttons(reopened), captured)
+                    self.assertEqual(reopened.canvas.yview()[0], 0.0)
+                    reopened.nav_buttons[0].invoke()
+                    self.assertEqual('复制安装页地址' in self.buttons(reopened), not captured)
+                finally:
+                    reopened.dispose()
+
+    def test_both_exports_on_home_and_results_locate_exact_files(self):
+        config = student_term_config(CONFIG)
+        self.ui.service.save_settings(config)
+        self.ui.service.acknowledge_bookmark()
+        result = self.ui.service.run(capture=write_capture(Path(self.temp.name), config=config))
+        for show in (self.ui.show_home, lambda: self.ui.show_result(result)):
+            show()
+            self.window.update_idletasks()
+            buttons = self.buttons()
+            with patch('desktop.reveal_file') as reveal:
+                buttons['导出 WakeUp 文件'].invoke()
+                buttons['导出苹果日历'].invoke()
+                self.assertEqual([call.args[0] for call in reveal.call_args_list],
+                    [self.ui.service.root / 'output/wakeup.csv', self.ui.service.root / 'output/calendar.ics'])
+        (self.ui.service.root / 'output/calendar.ics').write_bytes(b'tampered')
+        with patch('desktop.reveal_file') as reveal:
+            self.ui.reveal_apple()
+            reveal.assert_not_called()
+        self.assertIn('重新生成导入文件', self.buttons())
+
+    def test_partial_and_total_export_failure_show_per_format_actions(self):
+        self.ui.service.run(capture=write_capture(Path(self.temp.name)))
+        for fail_wakeup, fail_apple in ((True, False), (False, True), (True, True)):
+            with self.subTest(wakeup=fail_wakeup, apple=fail_apple):
+                wakeup = self.ui.service._export_unlocked
+                apple = self.ui.service._apple_export_unlocked
+                with patch.object(self.ui.service, '_export_unlocked',
+                                  side_effect=DataError('synthetic WakeUp failure') if fail_wakeup else wakeup), \
+                     patch.object(self.ui.service, '_apple_export_unlocked',
+                                  side_effect=DataError('synthetic ICS failure') if fail_apple else apple):
+                    result = self.ui.service.run(export_only=True)
+                self.ui.show_result(result)
+                buttons = self.buttons()
+                self.assertEqual(buttons['导出 WakeUp 文件'].instate(['disabled']), fail_wakeup)
+                self.assertEqual(buttons['导出苹果日历'].instate(['disabled']), fail_apple)
+                self.assertIn('重新生成导入文件', buttons)
+
+    def test_phone_confirmations_are_separate_and_reject_a_changed_guide(self):
+        self.ui.service.run(capture=write_capture(Path(self.temp.name)))
+        self.ui.show_phone()
+        self.ui.confirm_phone()
+        state = self.ui.service.state()
+        self.assertIn('phone_confirmed_csv', state)
+        self.assertNotIn('phone_confirmed_ics', state)
+        self.ui.show_apple_phone()
+        apple_hash = self.ui.service.ready_apple_export()['ics_sha256']
+        self.ui.confirm_apple_phone()
+        self.assertEqual(self.ui.service.state()['phone_confirmed_csv'], state['phone_confirmed_csv'])
+        self.assertEqual(self.ui.service.state()['phone_confirmed_ics'], apple_hash)
+        self.ui.show_apple_phone()
+        changed = item()
+        changed['details'][0]['Teacher'] = '变更教师'
+        self.ui.service.run(capture=write_capture(Path(self.temp.name), [changed], fetched=LATER))
+        self.ui.confirm_apple_phone()
+        self.assertEqual(self.ui.service.state()['phone_confirmed_ics'], apple_hash)
+        self.assertNotEqual(self.ui.service.ready_apple_export()['ics_sha256'], apple_hash)
+        self.ui.show_apple_phone()
+        self.ui.confirm_apple_phone()
+        self.assertEqual(self.ui.service.state()['phone_confirmed_ics'], self.ui.service.ready_apple_export()['ics_sha256'])
+        self.assertEqual(self.ui.service.state()['phone_confirmed_csv'], state['phone_confirmed_csv'])
+
+    def test_apple_guide_at_font_scales_starts_at_top_and_has_no_slot_table(self):
+        from tkinter import ttk
+        self.ui.service.run(capture=write_capture(Path(self.temp.name)))
+        for factor in (1.0, 1.25, 1.5):
+            self.window.tk.call('tk', 'scaling', 96 / 72 * factor)
+            self.ui._style()
+            self.ui.show_help()
+            self.window.update_idletasks()
+            self.ui.canvas.configure(scrollregion=(0, 0, 800, 4000))
+            self.ui.canvas.yview_moveto(0.4)
+            self.ui.show_apple_phone()
+            self.window.update_idletasks()
+            self.assertEqual(self.ui.canvas.yview()[0], 0.0)
+            self.assertFalse(any(isinstance(widget, ttk.Treeview) for widget in self.widgets()))
+            self.assertIn('我已在苹果日历导入并核对', self.buttons())
 
 
 if __name__ == '__main__':

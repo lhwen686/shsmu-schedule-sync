@@ -9,7 +9,7 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-from core import DataError, content_hash
+from core import DataError, content_hash, export_ics
 from prepare import BROWSER_MODULES, build_bookmark
 from source import SourceError
 from sync import (SyncCancelled, atomic_write, capture_folder, check_cancelled,
@@ -17,7 +17,7 @@ from sync import (SyncCancelled, atomic_write, capture_folder, check_cancelled,
                   load_settings, validate_settings, wait_capture)
 from wakeup import export_current_unlocked, load_slot_times, slot_times, validate_slot_times
 
-APP_VERSION = '1.0.0-rc4'
+APP_VERSION = '1.0.0-rc6'
 RESOURCE_ROOT = Path(__file__).resolve().parent
 HOME_URL = 'https://jwstu.shsmu.edu.cn/Home'
 
@@ -54,12 +54,14 @@ class UserIssue:
     detail: str
 
 
-def explain_error(error, *, exporting=False):
+def explain_error(error, *, exporting=False, apple=False):
     known = isinstance(error, (DataError, SourceError, SyncCancelled))
     detail = str(error) if known else type(error).__name__
     title, action = '这次操作没有完成', '原来的完整课表保留。可以重试，或在“遇到问题”中选择已下载的文件。'
-    if exporting:
-        title, action = '课表已保存，导入文件未生成', '请检查设置中的作息时间，再点击“重新生成导入文件”，不必重新采集。'
+    if exporting and apple:
+        title, action = '苹果日历文件暂不可用', '请点击“重新生成导入文件”，从已保存的完整课表恢复苹果日历文件。'
+    elif exporting:
+        title, action = '课表已保存，WakeUp 文件未生成', '请检查设置中的作息时间，再点击“重新生成导入文件”，不必重新采集。'
     elif isinstance(error, SyncCancelled):
         title, action = '已取消本次操作', '完整课表保留；准备好后可以重新开始。'
     elif '另一个同步程序' in detail:
@@ -93,6 +95,7 @@ class DesktopService:
     def __init__(self, root, resources=RESOURCE_ROOT):
         self.root = Path(root).resolve()
         self.resources = Path(resources)
+        self._bookmark_acknowledged = False
 
     @property
     def config_path(self):
@@ -143,6 +146,7 @@ class DesktopService:
     def acknowledge_bookmark(self):
         with exclusive_sync(self.root):
             self.save_state(bookmark_ack=self.bookmark_fingerprint())
+        self._bookmark_acknowledged = True
 
     def bookmark_fingerprint(self):
         # Changes only when the actual collector or semester changes, not the UI copy.
@@ -156,7 +160,14 @@ class DesktopService:
             return 1
         if state.get('confirmed_term') != term_key(self.config()):
             return 1
-        return 0 if state.get('bookmark_ack') == self.bookmark_fingerprint() else 2
+        if state.get('bookmark_ack') != self.bookmark_fingerprint():
+            return 2
+        # A saved acknowledgement alone must not skip an unfinished first run.
+        # Allow collection after confirming in this session; resume the guide on
+        # reopening until a complete timetable has actually been saved.
+        if not self._bookmark_acknowledged and load_current(self.root) is None:
+            return 2
+        return 0
 
     def save_settings(self, config, times=None, *, confirm_term=True):
         validate_settings(config)
@@ -214,6 +225,36 @@ class DesktopService:
         except (OSError, ValueError, KeyError, TypeError, DataError):
             return None
 
+    def _apple_export_unlocked(self, *, repair=False):
+        """Caller holds exclusive_sync. ICS does not depend on WakeUp settings."""
+        current = load_current(self.root)
+        if current is None:
+            raise DataError('没有已提交的完整课表，请先获取课表。')
+        if term_key(current['scope']) != term_key(self.config()):
+            raise DataError('学期设置已经改变，请先获取当前选择学期的课表。')
+        expected = export_ics(current)
+        path = self.root / 'output/calendar.ics'
+        actual = path.read_bytes() if path.exists() else None
+        if actual != expected:
+            if not repair:
+                raise DataError('苹果日历文件缺失或与当前课表不一致，请重新生成导入文件。')
+            atomic_write(path, expected)
+            if path.read_bytes() != expected:
+                raise DataError('苹果日历文件保存后校验失败，请重新生成导入文件。')
+        days = [event['date'] for event in current['events']]
+        return {'event_count': len(days), 'course_start': min(days) if days else None,
+                'course_end': max(days) if days else None,
+                'capture_fetched_at': current.get('capture_fetched_at'),
+                'ics_sha256': hashlib.sha256(expected).hexdigest()}
+
+    def ready_apple_export(self):
+        """Validate saved ICS before showing a file or accepting phone confirmation."""
+        try:
+            with exclusive_sync(self.root):
+                return self._apple_export_unlocked()
+        except (OSError, ValueError, KeyError, TypeError, DataError):
+            return None
+
     def run(self, *, capture=None, export_only=False, cancel=None, choose=None, paused=None,
             emit=lambda stage, value: None):
         """One lock across waiting, import and export. Intentionally never uploads."""
@@ -241,12 +282,18 @@ class DesktopService:
                 if term_key(current['scope']) != term_key(config):
                     raise DataError('学期设置已经改变，请先获取当前选择学期的课表。')
             # Do not cancel after a successful commit: finish creating its output.
-            emit('exporting', '课表已保存，正在生成 iPhone 导入文件…')
+            emit('exporting', '课表已保存，正在准备 WakeUp 和苹果日历文件…')
+            report = apple_report = issue = apple_issue = None
+            try:
+                apple_report = self._apple_export_unlocked(repair=True)
+            except Exception as error:
+                apple_issue = explain_error(error, exporting=True, apple=True)
             try:
                 report = self._export_unlocked()
             except Exception as error:
-                return {'imported': imported, 'report': None, 'issue': explain_error(error, exporting=True)}
-            return {'imported': imported, 'report': report, 'issue': None}
+                issue = explain_error(error, exporting=True)
+            return {'imported': imported, 'report': report, 'issue': issue,
+                    'apple_report': apple_report, 'apple_issue': apple_issue}
 
 
 class DesktopJob:

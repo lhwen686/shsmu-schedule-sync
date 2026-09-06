@@ -67,6 +67,7 @@ class AssistantWindow:
         self.pending = None
         self.details = []
         self.last_result = None
+        self.phone_guide = None
         self.poll_id = None
         self.status = tk.StringVar(value='')
         self.window.title('医学院课表助手')
@@ -82,7 +83,7 @@ class AssistantWindow:
         header = ttk.Frame(window, padding=(28, 18))
         header.pack(fill='x')
         ttk.Label(header, text='医学院课表助手', style='Brand.TLabel').pack(side='left')
-        ttk.Label(header, text=f'{APP_VERSION} · iPhone / WakeUp', style='Muted.TLabel').pack(side='right')
+        ttk.Label(header, text=f'{APP_VERSION} · WakeUp / 苹果日历', style='Muted.TLabel').pack(side='right')
         nav = ttk.Frame(window, padding=(28, 0, 28, 14))
         nav.pack(fill='x')
         self.nav_buttons = []
@@ -204,7 +205,7 @@ class AssistantWindow:
             self.show_setup(step)
             return
         current = load_current(self.service.root)
-        self.clear('每次更新，只走这条流程', '把课表装进手机',
+        self.clear('每次更新，只走这条流程' if current else '首次导入 · 下一步获取课表', '把课表装进手机',
                    '获取课表  →  自动生成文件  →  发给自己  →  在 iPhone 导入')
         if current:
             self.label(f"已保存 {len(current['events'])} 次课程 · {semester_label(current['scope']['semester'])}", 'Section.TLabel')
@@ -213,18 +214,16 @@ class AssistantWindow:
             if days:
                 self.label(f'本次已公布课程：{min(days)} 至 {max(days)}', 'Small.TLabel')
         else:
-            self.label('第一次使用？下面的按钮会带你完成一次完整导入。')
+            self.label('接下来获取你的第一份课表。还没添加好课表按钮，可重新查看安装引导。')
         self.button('获取我的课表', self.start, primary=True)
         self.label('助手会先准备好接收，再提示你去浏览器登录教务首页。', 'Small.TLabel')
-        report = self.service.ready_export()
-        if report:
-            self.button('找到要发到手机的文件', self.reveal)
-            self.button('查看 iPhone 导入指引与作息', self.show_phone)
-        elif current:
-            self.label('需要再次生成手机文件？到“遇到问题”点击“重新生成导入文件”。', 'Small.TLabel')
+        if current is None:
+            self.button('重新查看书签安装引导', lambda: self.show_setup(2))
+        self.export_choices(self.service.ready_export(), self.service.ready_apple_export(),
+                            allow_rebuild=current is not None)
         self.label('已经先下载了课表？', 'Section.TLabel', (16, 10))
         self.button('文件已经下载', self.pick_capture)
-        self.label('文件生成后，手机仍需要手动导入；WakeUp 不会自动跟随电脑更新。', 'Small.TLabel', (18, 0))
+        self.label('两种文件都需要在手机手动导入，不会自动跟随电脑更新。', 'Small.TLabel', (18, 0))
 
     def show_setup(self, step):
         if step == 1:
@@ -342,14 +341,15 @@ class AssistantWindow:
         self.poll_id = self.window.after(100, self.poll)
 
     def show_result(self, result):
-        if result['issue']:
-            self.show_issue(result['issue'])
-            return
-        report, imported = result['report'], result['imported']
-        self.clear('电脑上的文件已生成 · 下一步在手机导入', '课表准备好了',
-                   f"已生成 {report['event_count']} 次课程的 WakeUp 文件。")
-        self.label('学校采集时间：' + readable_time(report['capture_fetched_at']), 'Small.TLabel')
-        self.label(f"本次已公布课程：{report['course_start']} 至 {report['course_end']}", 'Small.TLabel')
+        report, apple_report, imported = result['report'], result['apple_report'], result['imported']
+        complete = report is not None and apple_report is not None
+        self.clear('电脑处理结果 · 手机仍需手动导入', '课表准备好了' if complete else '课表已保存',
+                   '按你使用的 App 选择文件。' if complete else '请查看每种文件的状态，可用的文件可以继续导入。')
+        summary_report = apple_report or report
+        if summary_report:
+            self.label('学校采集时间：' + readable_time(summary_report['capture_fetched_at']), 'Small.TLabel')
+            if summary_report['course_start']:
+                self.label(f"本次已公布课程：{summary_report['course_start']} 至 {summary_report['course_end']}", 'Small.TLabel')
         if imported:
             summary = imported.diff['summary']
             self.label(f"新增 {summary['ADDED']}  ·  删除 {summary['REMOVED']}  ·  修改 {summary['CHANGED']}", 'Section.TLabel')
@@ -359,10 +359,31 @@ class AssistantWindow:
                 self.label('请核对：' + warning)
         else:
             self.label('本次由已保存课表重新生成，没有重新访问学校。', 'Small.TLabel')
-        self.button('找到要发到手机的文件', self.reveal, primary=True)
-        self.label('在打开的文件夹里，将选中的 wakeup.csv 拖到微信“文件传输助手”或 QQ“我的手机”，由你点击发送。')
-        self.button('下一步：iPhone 怎么导入', self.show_phone)
-        self.label('手机尚未由助手确认导入。不要把电脑生成成功理解为手机已更新。', 'Small.TLabel')
+        self.export_choices(report, apple_report, wakeup_issue=result['issue'], apple_issue=result['apple_issue'])
+        self.label('电脑文件生成成功后，手机仍需手动导入并核对。', 'Small.TLabel')
+
+    def export_choices(self, report, apple_report, *, wakeup_issue=None, apple_issue=None, allow_rebuild=True):
+        for name, ready, issue, action, guide, guide_text, delivery in (
+                ('WakeUp', report, wakeup_issue, self.reveal, self.show_phone,
+                 '查看 WakeUp 导入指引与作息', 'wakeup.csv · 可通过微信或 QQ 发给自己。'),
+                ('苹果日历', apple_report, apple_issue, self.reveal_apple, self.show_apple_phone,
+                 '查看苹果日历导入指引', 'calendar.ics · 作为邮件附件发给自己，在 iPhone 自带“邮件”中打开。')):
+            self.label(name, 'Section.TLabel', (10, 8))
+            if ready is not None:
+                self.label(f"文件已就绪 · {ready['event_count']} 次课程。{delivery}", 'Small.TLabel')
+            elif issue is not None:
+                self.label(issue.title + '。' + issue.next_step, 'Small.TLabel')
+                self.details.append(issue.detail)
+            else:
+                self.label('文件暂不可用，请重新生成。' if allow_rebuild else '获取完整课表后，这里会提供文件。', 'Small.TLabel')
+            actions = ttk.Frame(self.content)
+            actions.pack(anchor='w', fill='x')
+            for text, callback in ((('导出 WakeUp 文件' if name == 'WakeUp' else '导出苹果日历'), action),
+                                   (guide_text, guide)):
+                button = self.button(text, callback, parent=actions, enabled=ready is not None)
+                button.pack_configure(side='left', padx=(0, 12))
+        if allow_rebuild and (report is None or apple_report is None):
+            self.button('重新生成导入文件', lambda: self.start(export_only=True))
 
     def reveal(self):
         if self.service.ready_export() is None:
@@ -370,11 +391,19 @@ class AssistantWindow:
             return
         reveal_file(self.service.root / 'output/wakeup.csv')
 
+    def reveal_apple(self):
+        if self.service.ready_apple_export() is None:
+            self.show_issue(explain_error(DataError('苹果日历文件已过期或被移动，请重新生成导入文件。'),
+                                          exporting=True, apple=True))
+            return
+        reveal_file(self.service.root / 'output/calendar.ics')
+
     def show_phone(self):
         report = self.service.ready_export()
         if report is None:
             self.show_issue(explain_error(DataError('尚无对应当前课表的导入文件。'), exporting=True))
             return
+        self.phone_guide = ('wakeup', report['csv_sha256'])
         self.clear('最后一步 · 在 iPhone 上操作', '把文件导入 WakeUp',
                    '1. 在手机微信 / QQ 接收 wakeup.csv，保存到“文件”App。\n'
                    '2. WakeUp → 导入课表 → Excel 导入 → 选取 CSV 文件。\n'
@@ -402,10 +431,45 @@ class AssistantWindow:
 
     def confirm_phone(self):
         report = self.service.ready_export()
-        if report is not None:
-            self.service.save_state(phone_confirmed_csv=report['csv_sha256'])
-            self.clear('本次流程已走完', '已记录你的手机核对', '以后学校课表有更新，再打开助手获取新课表，并重新在 WakeUp 导入。')
-            self.button('回到首页', self.show_home, primary=True)
+        if report is None or self.phone_guide != ('wakeup', report['csv_sha256']):
+            self.show_issue(explain_error(DataError('文件已变化或不可用，请重新打开 WakeUp 指引并核对后再确认。'), exporting=True))
+            return
+        self.service.save_state(phone_confirmed_csv=report['csv_sha256'])
+        self.clear('你的手工确认', '已记录 WakeUp 手机核对', '以后学校课表有更新，再打开助手获取新课表，并重新在 WakeUp 导入。')
+        self.button('回到首页', self.show_home, primary=True)
+
+    def show_apple_phone(self):
+        report = self.service.ready_apple_export()
+        if report is None:
+            self.show_issue(explain_error(DataError('尚无对应当前课表的苹果日历文件。'), exporting=True, apple=True))
+            return
+        self.phone_guide = ('apple', report['ics_sha256'])
+        self.clear('最后一步 · 在 iPhone 上操作', '把文件导入苹果日历',
+                   '1. 在 iPhone“日历”中建立专用的“医学院课表”日历。\n'
+                   '2. 在电脑邮件中附加 calendar.ics，由你发送到自己的邮箱。\n'
+                   '3. 在 iPhone 自带“邮件”中打开附件，按提示导入专用课表日历。\n'
+                   '4. 核对课程日期、上课时间、地点和教师。')
+        self.label(f"当前有效课程：{report['event_count']} 次\n学校采集时间：" + readable_time(report['capture_fetched_at']), 'Section.TLabel')
+        if report['course_start']:
+            self.label(f"本次已公布课程：{report['course_start']} 至 {report['course_end']}")
+        self.label('文件已携带每次课的日期、起止时间和上海时区，无需填写开学日期或节次作息。')
+        self.button('导出苹果日历', self.reveal_apple)
+        self.label('以后更新怎么处理', 'Section.TLabel', (10, 10))
+        self.label('这是一次性文件导入，手机不会自动跟随电脑更新。以后先导入新的专用课表日历，核对后再由你隐藏或移除旧课表日历，避免重复显示。不要删除其他个人日历。')
+        self.label('重复导入是否覆盖原课程、如何处理取消课程，取决于手机的实际导入行为，不能保证自动更新或删除。请特别核对发生变化的课程。', 'Small.TLabel')
+        self.label('若“邮件”中没有导入选项，请保留文件，记录 iOS 版本和所见提示；不要将文件预览当作导入成功。', 'Small.TLabel')
+        self.button('我已在苹果日历导入并核对', self.confirm_apple_phone, primary=True)
+        self.label('这是你的手工确认；电脑无法检测手机里的实际状态。', 'Small.TLabel')
+
+    def confirm_apple_phone(self):
+        report = self.service.ready_apple_export()
+        if report is None or self.phone_guide != ('apple', report['ics_sha256']):
+            self.show_issue(explain_error(DataError('文件已变化或不可用，请重新打开苹果日历指引并核对后再确认。'),
+                                          exporting=True, apple=True))
+            return
+        self.service.save_state(phone_confirmed_ics=report['ics_sha256'])
+        self.clear('你的手工确认', '已记录苹果日历手机核对', '以后学校课表有更新，再获取新课表，并通过邮件附件重新导入新的专用课表日历。')
+        self.button('回到首页', self.show_home, primary=True)
 
     def show_issue(self, issue):
         self.details.append(issue.detail)
@@ -431,7 +495,7 @@ class AssistantWindow:
         self.label('选择完整课表文件。取消选择会继续原来的等待。', 'Small.TLabel')
         self.button('选择下载文件夹', self.pick_downloads)
         self.button('重新生成导入文件', lambda: self.start(export_only=True), enabled=not self.running)
-        self.label('使用已保存课表，不再请求学校。课表已变化或作息已修改时，可重新生成。', 'Small.TLabel')
+        self.label('从已保存的完整课表重新生成 WakeUp 和苹果日历文件，无需重新采集。作息设置只影响 WakeUp。', 'Small.TLabel')
         self.button('重新查看书签安装引导', lambda: self.show_setup(2), enabled=not self.running)
         self.button('查看技术详情', self.show_details)
         self.label('登录过期：在添加了课表按钮的浏览器中正常打开教务首页并登录，然后点击课表按钮。\n'
