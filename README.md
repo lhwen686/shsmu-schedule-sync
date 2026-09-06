@@ -45,6 +45,7 @@
 | `data/previous.json` | 上一完整版本 |
 | `data/runs/` | 历次清理后的原始响应、快照和输出 |
 | `data/current.json` | 当前完整版本索引 |
+| `output/wakeup.csv`、`output/wakeup导入说明.txt` | 独立导出的 WakeUp 手动导入文件及日期、作息设置说明 |
 
 课程时间采用学校返回的明确日期和 `Asia/Shanghai` 时区，不按单双周猜测。保留源标识；课程改时间、地点或教师时，能够匹配身份的事件沿用 UID 并增加修订序号。
 
@@ -55,6 +56,25 @@
 需要持续订阅时，可以自行配置 HTTPS WebCal。仓库提供上传器、服务端和部署参考，详见 [deploy/README.md](deploy/README.md)。**本仓库不提供托管服务、共享订阅地址或上传密钥。** 每个使用者需要独立的日历存储和访问权限。
 
 配置后，每次本地同步成功会自动上传并回读校验；上传失败可双击 `仅上传日历.cmd` 重试。手机按自身订阅刷新机制更新，并非即时推送。学校采集仍需本人登录和点击书签，尚无无人值守采集。
+
+## iOS WakeUp 手动导入
+
+完成一次完整同步后，双击 **`导出 WakeUp 课表.cmd`**。程序从当前已提交快照和对应原始教师详情生成 `output/wakeup.csv`、`output/wakeup导入说明.txt`，无需再次打开学校网页，也不会上传文件。命令行入口：
+
+```powershell
+.\.venv\Scripts\python.exe -X utf8 wakeup.py
+```
+
+1. 将 `wakeup.csv` 保存到 iPhone 的“文件”App。
+2. 在 WakeUp 中选择 **导入课表 → Excel 导入 → 选取 CSV 文件**，导入到新课表。
+3. 按配套说明设置学期开始日期、学期周数、一天节数和上课时间；CSV 本身不携带这些设置。
+4. 核对首周、晚课和不连续周次。以后完成学校同步后，再点击独立导出入口，将新 CSV 手动导入到新课表，核对后自行移除旧课表。
+
+CSV 采用官方七列，每次实际课程一行，保留实际周次、教师和地点，不导出取消记录、授课内容及备注。原“同步课表.cmd”不会自动生成 CSV，WakeUp 也不会自动跟随 CSV 更新。重复导入的覆盖和删除行为尚未验证。
+
+当前支持的作息规则为：第 1–5 节从 08:00 起，第 6–14 节从 13:30 起，每节 40 分钟，相邻节次间隔 10 分钟。说明逐项区分原始课程已确认的起止边界与推算边界，这不是学校官方作息表。每次导出会检查所有实际课程起止时间；缺少详情、节次或周次冲突、时间不匹配时停止导出并保留旧 CSV，不强行套用其他校区或学期的作息。
+
+已有一个账号完成 iOS WakeUp 实机导入并反馈可正常使用，其他使用者仍需自行核对。格式与操作依据：[官方 CSV 教程](https://www.wakeup.fun/doc/import_from_csv.html)、[课表设置](https://www.wakeup.fun/doc/settings/schedule_settings.html)。
 
 ## 学期和账号
 
@@ -93,7 +113,7 @@
 安装依赖并生成书签后运行（JavaScript 测试需要支持内置 Fetch 的 Node.js）：
 
 ```powershell
-.\.venv\Scripts\python.exe -X utf8 -m unittest -v test_sync test_webcal
+.\.venv\Scripts\python.exe -X utf8 -m unittest -v test_sync test_webcal test_wakeup
 node test_capture.mjs
 node test_transport.mjs
 ```
