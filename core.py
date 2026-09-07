@@ -62,7 +62,104 @@ def joined(rows, key):
     return "；".join(sorted({clean(r.get(key)) for r in rows if clean(r.get(key))}))
 
 
-def normalize_one(row, details):
+def _periods(value):
+    if not isinstance(value, str) or not re.fullmatch(r'(?:\|(?:[1-9]|1[0-4])\|)+', value):
+        raise DataError('合班教学日历的节次缺失或格式改变，已停止。')
+    return {int(v) for v in ids(value)}
+
+
+def _combined_class(row, details):
+    """Only the observed, explicitly merged cross-manager response may differ.
+
+    CaptureSource binds the response to the exact main-event request. This is
+    not a name/date lookup or permission to accept arbitrary unmatched IDs.
+    """
+    if not isinstance(row, dict) or not isinstance(details, list) or any(not isinstance(d, dict) for d in details):
+        raise DataError('课程或教学日历的响应结构改变。')
+    slots = set(ids(row.get('MCSID')))
+    if not any(slots and ids(d.get('CurriculumScheduleIDs'))
+               and not slots.intersection(ids(d.get('CurriculumScheduleIDs'))) for d in details):
+        return False
+    def positive(value):
+        return type(value) is int and value > 0 or isinstance(value, str) and value.isdecimal() and int(value) > 0
+    if (not positive(row.get('CSID')) or not positive(row.get('CurriculumID'))
+            or type(row.get('CourseCount')) is not int or row['CourseCount'] != len(slots)):
+        raise DataError('教学日历无法对应到该课程的排课 ID。')
+    signatures = set()
+    for d in details:
+        if (any(not positive(d.get(k)) for k in ('HeBanID', 'ScheduleManagerID', 'TeachingCalendarID', 'ID', 'DetailID'))
+                or str(d['ScheduleManagerID']) == str(row['CSID'])
+                or len(set(clean(d.get('ClassCode')).split())) < 2
+                or str(d.get('CurriculumID')) != str(row['CurriculumID'])
+                or not d.get('ClassTime') or parse_time(d['ClassTime']).date() != parse_time(row.get('Start')).date()
+                or d.get('IsDel') is True or not ids(d.get('CurriculumScheduleIDs'))
+                or slots.intersection(ids(d.get('CurriculumScheduleIDs')))):
+            raise DataError('教学日历无法对应到该课程的排课 ID；合班关联证据不完整或冲突。')
+        if not _periods(d.get('KCIndex')).issubset(_periods(d.get('PKCIndex'))):
+            raise DataError('合班授课节次超出对应排课范围，已停止。')
+        signatures.add((str(d['HeBanID']), str(d['ScheduleManagerID']), tuple(sorted(clean(d['ClassCode']).split()))))
+    if len(signatures) != 1:
+        raise DataError('同一次课程的合班关联互相冲突，已停止。')
+    return True
+
+
+def _combined_periods(items):
+    """Partition a shared source calendar by complete, ordered main slot IDs.
+
+    Dates and times remain the explicit main-event values. No default WakeUp
+    clock, numeric ID offset, or invented persistent event ID is used here.
+    """
+    groups, result = {}, {}
+    fields = ('ID', 'DetailID', 'TeachingCalendarID', 'HeBanID', 'ScheduleManagerID',
+              'CurriculumScheduleIDs', 'PKCIndex', 'KCIndex', 'GroupName', 'WeekNum',
+              'Teacher', 'Content', 'Bz')
+    for index, item in enumerate(items):
+        row, details = item['event'], item['details']
+        if not _combined_class(row, details):
+            continue
+        signature = tuple(sorted(json.dumps({k: clean(d.get(k)) for k in fields}, sort_keys=True) for d in details))
+        key = (str(row['CSID']), str(row['CurriculumID']), parse_time(row['Start']).date(), signature)
+        groups.setdefault(key, []).append((index, row, details))
+    for group in groups.values():
+        details = group[0][2]
+        periods = sorted(set().union(*(_periods(d['PKCIndex']) for d in details)))
+        taught = set().union(*(_periods(d['KCIndex']) for d in details))
+        if periods != list(range(periods[0], periods[-1] + 1)) or taught != set(periods):
+            raise DataError('合班教学日历的排课或授课节次未完整覆盖，已停止。')
+        unique = {}
+        for index, row, _ in group:
+            identity = (str(row.get('ID')), tuple(ids(row['MCSID'])))
+            if identity in unique and unique[identity][0] != row:
+                raise DataError('同一合班主事件返回互相冲突的内容，已停止。')
+            unique.setdefault(identity, (row, []))[1].append(index)
+        ordered = sorted(unique.values(), key=lambda value: parse_time(value[0]['Start']))
+        offset, seen_slots, last_end = 0, set(), None
+        for row, indices in ordered:
+            start, end = parse_time(row['Start']), parse_time(row['End'])
+            slots = set(ids(row['MCSID']))
+            if (start.date() != end.date() or start >= end or last_end is not None and start < last_end
+                    or seen_slots.intersection(slots)):
+                raise DataError('合班分段主课表的时间或源标识有歧义，已停止。')
+            assigned = periods[offset:offset + len(slots)]
+            if len(assigned) != len(slots):
+                raise DataError('合班主课表节数超出教学详情，已停止。')
+            for index in indices:
+                result[index] = assigned
+            offset += len(slots)
+            seen_slots.update(slots)
+            last_end = end
+        if offset != len(periods):
+            raise DataError('合班分段主课表未完整覆盖教学详情的节次，已停止。')
+    return result
+
+
+def normalize_with_details(items):
+    periods = _combined_periods(items)
+    return [(normalize_one(item['event'], item['details'], combined_periods=periods.get(index)), item['details'])
+            for index, item in enumerate(items)]
+
+
+def normalize_one(row, details, *, combined_periods=None):
     if not isinstance(row, dict) or not isinstance(details, list) or any(not isinstance(d, dict) for d in details):
         raise DataError("课程或教学日历的响应结构改变。")
     if not details:
@@ -80,11 +177,14 @@ def normalize_one(row, details):
     kind = clean(row.get("CurriculumType"))
     tag = f"{kind}:{course_id}:{class_id}"
     slot_ids = ids(row.get("MCSID"))
+    combined = _combined_class(row, details)
+    if combined and combined_periods is None:
+        combined_periods = _combined_periods([{'event': row, 'details': details}])[0]
     detail_ids = sorted({str(d["DetailID"]) for d in details if d.get("DetailID") is not None})
     teaching_ids = sorted({str(d["ID"]) for d in details if d.get("ID") is not None})
     aliases = ([f"slot:{tag}:{v}" for v in slot_ids]
-               + [f"detail:{tag}:{v}" for v in detail_ids]
-               + [f"teaching-event:{tag}:{v}" for v in teaching_ids])
+               + ([] if combined else [f"detail:{tag}:{v}" for v in detail_ids]
+                  + [f"teaching-event:{tag}:{v}" for v in teaching_ids]))
     if row.get("ID") is not None:
         aliases.append(f"main:{tag}:{row['ID']}")
     if not aliases:
@@ -95,12 +195,14 @@ def normalize_one(row, details):
         if d.get("CurriculumID") is not None and str(d["CurriculumID"]) != course_id:
             raise DataError("课程与教学日历的课程 ID 不一致。")
         linked = set(ids(d.get("CurriculumScheduleIDs")))
-        if slot_ids and linked and not linked.intersection(slot_ids):
+        if slot_ids and linked and not linked.intersection(slot_ids) and not combined:
             raise DataError("教学日历无法对应到该课程的排课 ID。")
         if d.get("ClassTime") and parse_time(d["ClassTime"]).date() != start.date():
             raise DataError("课表日期与教学日历日期不一致。")
-    teachers = joined(details, "Teacher") or clean(row.get("Teacher"))
-    return {
+    relevant = ([d for d in details if _periods(d['KCIndex']).intersection(combined_periods)]
+                if combined else details)
+    teachers = joined(relevant, "Teacher") or clean(row.get("Teacher"))
+    event = {
         "source_id": str(row.get("ID") or ""), "course_id": course_id,
         "schedule_manager_id": class_id, "course_code": clean(row.get("CourseCode")),
         "course_name": name, "course_type": kind,
@@ -108,15 +210,19 @@ def normalize_one(row, details):
         "end_date": end.date().isoformat(), "end_time": end.strftime("%H:%M:%S"),
         "start": start.isoformat(), "end": end.isoformat(), "timezone": "Asia/Shanghai",
         "location": clean(row.get("ClassroomAcademy")) or clean(row.get("Classroom")),
-        "teacher": teachers, "content": joined(details, "Content") or clean(row.get("Content")),
-        "notes": joined(details, "Bz"), "source": "https://jwstu.shsmu.edu.cn/Home/GetCurriculumTable",
+        "teacher": teachers, "content": joined(relevant, "Content") or clean(row.get("Content")),
+        "notes": joined(relevant, "Bz"), "source": "https://jwstu.shsmu.edu.cn/Home/GetCurriculumTable",
         "source_ids": {"MCSID": slot_ids, "ID": row.get("ID"), "CSID": row.get("CSID"),
                        "CurriculumID": row.get("CurriculumID"), "XXKMID": row.get("XXKMID"),
                        "detail_ids": detail_ids, "teaching_event_ids": teaching_ids,
                        "teaching_calendar_ids": sorted({str(d["TeachingCalendarID"]) for d in details if d.get("TeachingCalendarID") is not None})},
         "identity_aliases": sorted(set(aliases)),
-        "identity_basis": "detail" if detail_ids else ("teaching-event" if teaching_ids else ("slot" if slot_ids else "main")),
+        "identity_basis": 'slot' if combined else ("detail" if detail_ids else ("teaching-event" if teaching_ids else ("slot" if slot_ids else "main"))),
     }
+    if combined:
+        event['source_ids']['combined_class'] = {'HeBanID': str(details[0]['HeBanID']),
+            'ScheduleManagerID': str(details[0]['ScheduleManagerID']), 'periods': list(combined_periods)}
+    return event
 
 
 def semantic(event):
@@ -146,8 +252,7 @@ def normalize(items, start, end):
         raise DataError("日期范围无效。")
     normalized = []
     seen = {}
-    for item in items:
-        event = normalize_one(item["event"], item["details"])
+    for event, _ in normalize_with_details(items):
         if not lower <= date.fromisoformat(event["date"]) < upper:
             continue  # Source end inclusivity does not leak events across chunk boundaries.
         key = tuple(event["identity_aliases"])

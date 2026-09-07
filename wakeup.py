@@ -10,7 +10,7 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-from core import DataError, normalize, normalize_one
+from core import DataError, normalize, normalize_with_details
 from sync import ROOT, atomic_write, exclusive_sync, load_current
 
 HEADER = ('课程名称', '星期', '开始节数', '结束节数', '老师', '地点', '周数')
@@ -95,11 +95,11 @@ def build_export(snapshot, bundle, times=None):
     mapped = {}
     week_starts = set()
     observed_start, observed_end = set(), set()
-    for item in items:
-        event = normalize_one(item['event'], item['details'])
+    for event, details in normalize_with_details(items):
         if not scope['start'] <= event['date'] < scope['end_exclusive']:
             continue
-        slots = detail_slots(item['details'])
+        combined = event['source_ids'].get('combined_class')
+        slots = combined['periods'] if combined else detail_slots(details)
         first, last = slots[0], slots[-1]
         if (event['date'] != event['end_date'] or event['start_time'] != times[first][0]
                 or event['end_time'] != times[last][1]):
@@ -108,7 +108,7 @@ def build_export(snapshot, bundle, times=None):
                             '未导出；可复制 wakeup-slots.example.json 为 local/wakeup-slots.json，按本人作息修改后重试。')
         day = date.fromisoformat(event['date'])
         weeks = set()
-        for detail in item['details']:
+        for detail in details:
             week = detail.get('WeekNum')
             if type(week) is not int or not 1 <= week <= 35:
                 raise DataError('教师详情缺少有效教学周次，未导出 WakeUp 文件。')

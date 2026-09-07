@@ -8,8 +8,8 @@
 | 对象 | 已确认的范围 |
 | --- | --- |
 | 程序功能基线 | `v1.0.0-rc7`，源码提交 `8ffdaffd83d6bcd23c79bcf4a58dff8646718dce` |
-| 应用 / 采集书签 | 本地修复候选 `desktop_service.py:APP_VERSION = 1.0.0-rc8`；采集版本 `2026-09-07.9` |
-| 当前维护 | [BUG-20260907-01](VERIFICATION.md#bug-json-handoff-20260907)：只下载到 JSON 后的继续入口；分支 `codex/fix-json-handoff-20260907`，从已核实的 `a2fe2ebdacdb642ae46ab2f92d0cb59ee8827125` 起步；修复提交以 Git 记录为准 |
+| 应用 / 采集书签 | 本地修复候选 `desktop_service.py:APP_VERSION = 1.0.0-rc9`；采集版本仍为 `2026-09-07.9` |
+| 当前维护 | [BUG-20260907-02](VERIFICATION.md#bug-combined-classes-20260907)：合班详情与分段排课；分支 `codex/fix-combined-classes-20260907`，从 rc8 修复提交 `7a10b3e253779c06b6f0ee28b6d77ff9e40eebbf` 起步；保留此前 JSON 继续入口修复 |
 | Git 状态依据 | 2026-09-07 整理前本地 `main`、rc7 标签和缓存 `origin/main` 相同；本轮没有联网或推送，不据此断言远端最新版本 |
 | 发布证据 | [rc7 历史记录](VERIFICATION.md#verification-rc7)；同版本修订通过源码提交和产物哈希区分 |
 
@@ -21,11 +21,13 @@
 
 已核实的桌面秋季预设为 `[2026-09-07, 2027-02-22)`，CLI 示例仍为 `[2026-09-07, 2027-01-18)`；这两个用途不同。实际末次课程与 WakeUp 周数来自采集数据。未知学期或显式自定义范围不套用当前预设，设置变化后需手动更新书签。
 
-学生下载入口见 [README](README.md)。最近已记录的公开候选包是 rc7；rc8 EXE / ZIP 仅在本地生成，没有推送或更新公开附件。新书签提示需本人手动替换后生效；已下载的 JSON 可直接选择导入。
+学生下载入口见 [README](README.md)。最近已记录的公开候选包仍是 rc7；rc8 和 rc9 属于本地修复候选，没有推送或更新公开附件。本次兼容修复不改采集器，原有完整 JSON 可直接选择处理，不需要为此重新安装书签。
+
+合班课程通过原事件的精确详情请求、合班标识、课程/日期及完整节次关联；保留主课表实际起止时间和源排课 ID。共用整段详情的分段事件按已覆盖的主排课节数分配节次及教师内容；不把共用详情 ID 当作每段课的独立身份。不完整或冲突的关联仍停止并保留旧版。
 
 ## 验证与下一步
 
-[本轮修复记录](VERIFICATION.md#bug-json-handoff-20260907)：改前 2 个复现用例失败，改后均通过；完整 111 项 Python、三组 JavaScript、最终 EXE 包内自检及开发机当前缩放窗口核对通过。没有收到该同学原 JSON，未将合成结果当作其文件验收。[历史 rc7 记录](VERIFICATION.md#verification-rc7) 和 [文档整理](VERIFICATION.md#docs-maintenance-20260907) 保留原对象与日期。
+[本轮修复记录](VERIFICATION.md#bug-combined-classes-20260907)：改前 3 个合成复现用例因 ID 不匹配失败；改后完整 118 项 Python 与三组 JavaScript 通过。已提供同学的真实旧采集离线回放，132 次课程全部生成 CSV / ICS，逐条核对主时间和标识，重复处理同一源响应无误报、文件字节不变。维护者既有 128 次课程的新旧标准化结果及 ICS 一致。安装包的自检和哈希以修复记录为准。[rc8 修复](VERIFICATION.md#bug-json-handoff-20260907)、[历史 rc7 记录](VERIFICATION.md#verification-rc7) 保留原对象与日期。
 
 当前候选版的学校实采、手机、另一台无 Python 电脑、Windows 实际缩放及学生独立操作仍有未验项目；以 [STUDENT_ACCEPTANCE](STUDENT_ACCEPTANCE.md) 为准。旧版 Chrome 实采和 WebCal 订阅不能替代本版浏览器及 Apple Mail 附件导入验收。
 

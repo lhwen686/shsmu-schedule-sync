@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from core import DataError, normalize, reconcile
 from sync import publish
-from test_sync import NOW, LATER, SCOPE, fixture
+from test_sync import NOW, LATER, SCOPE, combined_fixture, fixture
 from wakeup import HEADER, build_export, export_current
 
 
@@ -33,6 +33,25 @@ def rows(content):
 
 
 class WakeUpTests(unittest.TestCase):
+    def test_combined_split_exports_only_each_main_event_period(self):
+        content, _, report = build_export(*prepared(combined_fixture(split=True)))
+        parsed = rows(content)
+        self.assertEqual(report['event_count'], 2)
+        self.assertEqual([r[2:5] for r in parsed[1:]],
+                         [['1', '1', '第一节教师'], ['2', '2', '第二节教师']])
+
+    def test_combined_split_still_validates_actual_endpoint_and_custom_times(self):
+        values = combined_fixture(split=True)
+        values[0]['event']['Start'] = '2026-09-07T07:55:00'
+        snapshot, bundle = prepared(values)
+        self.assertEqual(len(snapshot['events']), 2)  # ICS does not depend on a WakeUp template.
+        with self.assertRaises(DataError):
+            build_export(snapshot, bundle)
+        from wakeup import slot_times
+        times = slot_times()
+        times[1] = ('07:55:00', '08:40:00')
+        self.assertEqual(build_export(snapshot, bundle, times=times)[2]['event_count'], 2)
+
     def test_csv_roundtrip_special_characters_and_empty_fields(self):
         value = item()
         value['event']['Curriculum'] = '中文,课程 "A"\n第二行'

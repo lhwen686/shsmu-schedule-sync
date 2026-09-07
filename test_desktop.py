@@ -16,7 +16,7 @@ from core import DataError
 from desktop_service import DesktopJob, DesktopService, student_term_config, term_key
 from prepare import BROWSER_MODULES
 from source import ORIGIN, SourceError, request_key
-from test_sync import NOW, LATER, SCOPE
+from test_sync import NOW, LATER, SCOPE, combined_fixture
 from test_wakeup import item
 from wakeup import slot_times
 
@@ -57,6 +57,22 @@ class DesktopTests(unittest.TestCase):
     def state_bytes(self):
         return {str(p.relative_to(self.root)): p.read_bytes() for d in ('data', 'output')
                 for p in (self.root / d).rglob('*') if p.is_file() and p.name != 'sync.lock'}
+
+    def test_combined_split_both_exports_reopen_and_repeat_without_upload(self):
+        with patch('sync.publish_current', side_effect=AssertionError('Desktop must not upload')):
+            path = write_capture(self.root, combined_fixture(split=True))
+            result = self.service.run(capture=path)
+            self.assertIsNone(result['issue'])
+            self.assertIsNone(result['apple_issue'])
+            self.assertEqual(result['report']['event_count'], 2)
+            self.assertEqual(result['apple_report']['event_count'], 2)
+            saved = self.state_bytes()
+            reopened = DesktopService(self.root)
+            reopened.initialize()
+            self.assertIsNotNone(reopened.ready_export())
+            self.assertIsNotNone(reopened.ready_apple_export())
+            self.assertTrue(reopened.run(capture=path)['imported'].duplicate)
+            self.assertEqual(self.state_bytes(), saved)
 
     def test_first_run_resources_are_separate_and_onboarding_is_explicit(self):
         fresh = DesktopService(self.root / 'new appdata')

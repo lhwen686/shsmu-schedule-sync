@@ -12,7 +12,7 @@ import sync
 from core import DataError, normalize
 from prepare import BROWSER_MODULES
 from source import ORIGIN, request_key
-from test_sync import NOW, LATER, SCOPE, fixture
+from test_sync import NOW, LATER, SCOPE, combined_fixture, fixture
 from wakeup import export_current
 
 
@@ -61,6 +61,29 @@ class WorkflowTests(unittest.TestCase):
         return {name: (self.root / name).read_bytes() for name in
                 ('data/current.json', 'data/schedule.json', 'output/calendar.ics',
                  'output/changes.json', 'output/changes.txt')}
+
+    def test_combined_split_cli_repeat_and_failed_capture_preserve_committed_files(self):
+        values = combined_fixture(split=True)
+        ordinary = fixture(8)
+        ordinary['details'][0].update(PKCIndex='|1||2|', WeekNum=1)
+        values.append(ordinary)
+        self.assertEqual(self.run_capture(values), 0)
+        export_current(self.root)
+        csv = (self.root / 'output/wakeup.csv').read_bytes()
+        ics = (self.root / 'output/calendar.ics').read_bytes()
+        uids = [e['uid'] for e in sync.load_current(self.root)['events']]
+        self.assertEqual(self.run_capture(values[::-1], LATER), 0)
+        export_current(self.root)
+        self.assertEqual((self.root / 'output/wakeup.csv').read_bytes(), csv)
+        self.assertEqual((self.root / 'output/calendar.ics').read_bytes(), ics)
+        self.assertEqual([e['uid'] for e in sync.load_current(self.root)['events']], uids)
+        before = self.committed_bytes()
+        self.upload.reset_mock()
+        values[0]['details'][0]['HeBanID'] = None
+        self.assertEqual(self.run_capture(values, '2026-09-07T12:00:00Z'), 2)
+        self.assertEqual(self.committed_bytes(), before)
+        self.assertEqual((self.root / 'output/wakeup.csv').read_bytes(), csv)
+        self.upload.assert_not_called()
 
     def test_empty_details_keep_committed_version_and_never_upload(self):
         values = [fixture(), fixture(2)]

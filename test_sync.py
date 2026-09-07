@@ -32,9 +32,74 @@ def normalized(items):
     return normalize(items, SCOPE['start'], SCOPE['end_exclusive'])
 
 
+def combined_fixture(split=False):
+    """Synthetic source: one merged calendar is shared by distinct main slots."""
+    value = fixture()
+    value['event']['CourseCount'] = 2
+    first = value['details'][0]
+    first.update(ScheduleManagerID=200, HeBanID=400, ClassCode='DEMO-A DEMO-B',
+                 CurriculumScheduleIDs='|51||52|', PKCIndex='|1||2|', KCIndex='|1|',
+                 ClassHour=1, WeekNum=1, Teacher='第一节教师', Content='第一节内容')
+    second = copy.deepcopy(first)
+    second.update(DetailID=1002, KCIndex='|2|', Teacher='第二节教师', Content='第二节内容')
+    value['details'].append(second)
+    if not split:
+        return [value]
+    other = copy.deepcopy(value)
+    value['event'].update(ID=11, MCSID='11', CourseCount=1, End='2026-09-07T08:40:00')
+    other['event'].update(ID=12, MCSID='12', CourseCount=1, Start='2026-09-07T08:50:00')
+    return [value, other]
+
+
 class TimetableTests(unittest.TestCase):
     def baseline(self, items=None):
         return reconcile(normalized(items or [fixture()]), None, SCOPE, NOW)[0]
+
+    def test_combined_class_uses_main_identity_and_preserves_shared_source_ids(self):
+        event = normalized(combined_fixture())[0]
+        self.assertEqual(event['source_ids']['MCSID'], ['11', '12'])
+        self.assertEqual(event['source_ids']['detail_ids'], ['1001', '1002'])
+        self.assertEqual(event['source_ids']['combined_class']['periods'], [1, 2])
+        self.assertEqual(event['identity_basis'], 'slot')
+        self.assertTrue(all(a.startswith(('slot:', 'main:')) for a in event['identity_aliases']))
+        self.assertEqual(event['teacher'], '第一节教师；第二节教师')
+
+    def test_combined_split_selects_relevant_details_and_repeats_without_changes(self):
+        items = combined_fixture(split=True)
+        old = self.baseline(items)
+        self.assertEqual([e['teacher'] for e in old['events']], ['第一节教师', '第二节教师'])
+        self.assertEqual([e['content'] for e in old['events']], ['第一节内容', '第二节内容'])
+        self.assertEqual([e['source_ids']['combined_class']['periods'] for e in old['events']], [[1], [2]])
+        self.assertEqual(len({e['uid'] for e in old['events']}), 2)
+        current, diff = reconcile(normalized(items[::-1] + [copy.deepcopy(items[0])]), old, SCOPE, LATER)
+        self.assertEqual(diff['changes'], [])
+        self.assertEqual(export_ics(current), export_ics(old))
+        for value in items:
+            value['details'][1]['Teacher'] = '更新教师'
+        updated, diff = reconcile(normalized(items), old, SCOPE, LATER)
+        self.assertEqual([e['uid'] for e in updated['events']], [e['uid'] for e in old['events']])
+        self.assertEqual(diff['summary'], {'ADDED': 0, 'REMOVED': 0, 'CHANGED': 1})
+
+    def test_combined_class_rejects_unproven_or_conflicting_association(self):
+        for field, value in [('HeBanID', None), ('ScheduleManagerID', 100),
+                             ('ClassCode', 'DEMO-A'), ('CurriculumID', 999),
+                             ('ClassTime', '2026-09-08T00:00:00'), ('PKCIndex', '|1||3|'),
+                             ('KCIndex', '|3|'), ('IsDel', True)]:
+            with self.subTest(field=field):
+                items = combined_fixture()
+                items[0]['details'][0][field] = value
+                with self.assertRaises(DataError):
+                    normalized(items)
+        items = combined_fixture()
+        items[0]['event']['CourseCount'] = 1
+        with self.assertRaises(DataError):
+            normalized(items)
+        items = combined_fixture(split=True)
+        with self.assertRaises(DataError):
+            normalized(items[:1])
+        items[1]['event']['Start'] = items[0]['event']['Start']
+        with self.assertRaises(DataError):
+            normalized(items)
 
     def test_explicit_local_dates_and_chinese(self):
         event = normalized([fixture()])[0]

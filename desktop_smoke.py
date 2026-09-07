@@ -92,6 +92,36 @@ def self_test(report_path):
             assert load_current(root)['events'][0]['uid'] == uid
             assert (root / 'data/current.json').read_bytes() == pointer
             assert (root / 'output/calendar.ics').read_bytes() == calendar_bytes
+            # Keep a merged/split fixture in the frozen runtime acceptance too.
+            # A second explicit data directory cannot switch the first account.
+            import copy
+            shared = copy.deepcopy(detail)
+            shared.update(ScheduleManagerID=200, HeBanID=400, ClassCode='DEMO-A DEMO-B',
+                          CurriculumScheduleIDs='|51||52|', KCIndex='|1|', Teacher='第一节教师')
+            shared_second = copy.deepcopy(shared)
+            shared_second.update(DetailID=1002, KCIndex='|2|', Teacher='第二节教师')
+            first_row = dict(row, ID=11, MCSID='11', CourseCount=1, End='2026-09-07T08:40:00')
+            second_row = dict(row, ID=12, MCSID='12', CourseCount=1, Start='2026-09-07T08:50:00')
+            merged = json.loads(capture.read_text(encoding='utf-8'))
+            merged['responses'] = copy.deepcopy(responses[:len(list(month_ranges(config['start'], config['end_exclusive'])))])
+            for record in merged['responses']:
+                if record['response']['List']:
+                    record['response']['List'] = [first_row, second_row]
+            for main_row in (first_row, second_row):
+                merged['responses'].append({'path': '/Home/GetCalendarTable',
+                    'params': {k: str(main_row.get(k) or '') for k in ('MCSID', 'CSID', 'CurriculumID', 'XXKMID', 'CurriculumType')},
+                    'response': [shared, shared_second]})
+            merged_path = root / 'merged-runtime-capture.json'
+            merged_path.write_text(json.dumps(merged), encoding='utf-8')
+            merged_service = DesktopService(root / 'merged-runtime')
+            merged_service.initialize()
+            merged_result = merged_service.run(capture=merged_path)
+            assert merged_result['issue'] is None and merged_result['apple_issue'] is None
+            assert merged_result['report']['event_count'] == merged_result['apple_report']['event_count'] == 2
+            merged_csv = list(csv.reader(io.StringIO((merged_service.root / 'output/wakeup.csv').read_text(encoding='utf-8-sig'))))
+            assert [r[2:5] for r in merged_csv[1:]] == [['1', '1', '第一节教师'], ['2', '2', '第二节教师']]
+            assert len({e['uid'] for e in load_current(merged_service.root)['events']}) == 2
+            report['combined_split_exports'] = True
             window = tk.Tk()
             window.withdraw()
             ui = AssistantWindow(window, root)

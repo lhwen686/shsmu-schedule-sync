@@ -17,7 +17,7 @@ from sync import (SyncCancelled, atomic_write, capture_folder, check_cancelled,
                   load_settings, validate_settings, wait_capture)
 from wakeup import export_current_unlocked, load_slot_times, slot_times, validate_slot_times
 
-APP_VERSION = '1.0.0-rc8'
+APP_VERSION = '1.0.0-rc9'
 RESOURCE_ROOT = Path(__file__).resolve().parent
 HOME_URL = 'https://jwstu.shsmu.edu.cn/Home'
 
