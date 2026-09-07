@@ -19,6 +19,8 @@ assert.deepEqual(await trial.read(path,params),{List:[]});
 assert.equal(trial.calls.length,2);
 assert(trial.delays.includes(3000));
 assert(!JSON.stringify(trial.log).includes('must-not-log'));
+assert(trial.log.every(entry=>typeof entry.recorded_at==='string'));
+assert(trial.log.filter(entry=>['success','failure'].includes(entry.state)).every(entry=>entry.duration_ms>=0));
 assert.equal(trial.calls[0].options.redirect,'manual');
 
 trial=fixture([failure]);
@@ -87,6 +89,8 @@ for (const missing of [{controllerFactory:null}, {fetch:null}]) {
   assert.equal(xhrCalls.length, count + 1);
 }
 const originalFetch = globalThis.fetch;
+const loggingFailure = fixture([{}], {observe:()=>{throw new Error('logging failure');}});
+assert.deepEqual(await loggingFailure.read(path,params),{List:[]});
 try {
   globalThis.fetch = undefined;
   const read = createSchoolReader(origin, {xhrFactory: () => new TestXHR()});

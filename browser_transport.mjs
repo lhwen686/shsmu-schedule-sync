@@ -3,7 +3,7 @@ export function createSchoolReader(origin, io = {}) {
   const send = io.fetch !== undefined ? io.fetch : (typeof fetch === 'function' ? fetch : null);
   const sleep = io.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
   const now = io.now ?? Date.now;
-  const observe = io.observe ?? (() => {});
+  const observe = entry => { try { io.observe?.({...entry, recorded_at:new Date(now()).toISOString()}); } catch {} };
   const makeXHR = io.xhrFactory !== undefined ? io.xhrFactory : (typeof XMLHttpRequest === 'function' ? () => new XMLHttpRequest() : null);
   const makeController = io.controllerFactory !== undefined ? io.controllerFactory :
     (typeof AbortController === 'function' ? () => new AbortController() : null);
@@ -38,6 +38,7 @@ export function createSchoolReader(origin, io = {}) {
     for (let attempt = 1; attempt <= 3; attempt++) {
       const gap = 1000 - (now() - lastFinished);
       if (gap > 0) await sleep(gap);
+      const began = now();
       observe({path, params, attempt, state:'start', transport});
       let failure, timeout = null;
       try {
@@ -74,7 +75,8 @@ export function createSchoolReader(origin, io = {}) {
           catch { throw problem('NON_JSON', '学校返回的正文不是有效 JSON，请刷新教务页确认登录'); }
         }
         observe({path, params, attempt, state:'success', transport, status:response.status,
-          content_type:(response.headers.get('content-type') ?? '').slice(0,128), body_length:body.length});
+          content_type:(response.headers.get('content-type') ?? '').slice(0,128), body_length:body.length,
+          duration_ms:Math.max(0, now() - began)});
         return value;
       } catch (error) {
         failure = error?.school_read_error === true ? error : problem(
@@ -85,7 +87,8 @@ export function createSchoolReader(origin, io = {}) {
         if (timeout !== null) cancelTimeout(timeout);
         lastFinished = now();
       }
-      observe({path, params, attempt, state:'failure', transport, code:failure.code, status:failure.status});
+      observe({path, params, attempt, state:'failure', transport, code:failure.code, status:failure.status,
+        duration_ms:Math.max(0, now() - began)});
       if (!failure.retryable || attempt === 3) {
         failure.request = {path, params, attempt, transport};
         throw failure;

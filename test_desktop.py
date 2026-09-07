@@ -578,6 +578,57 @@ class DesktopWidgetTests(unittest.TestCase):
         self.addCleanup(self.ui.dispose)
         self.ui.preference_path = Path(self.temp.name) / 'preferences.json'
 
+    def test_diagnostic_dialog_exports_selected_record_and_cancel_is_harmless(self):
+        import tkinter as tk
+        from tkinter import ttk
+        import zipfile
+        self.ui.service.run(capture=write_capture(Path(self.temp.name)))
+        expected_id = self.ui.service.diagnostics.record['operation_id']
+        self.ui.service.initialize()  # Opening the app again must still offer the last sync.
+        self.ui.show_help()
+        self.assertIn('导出排错日志', self.buttons())
+        self.ui.show_diagnostics()
+        dialog = next(w for w in self.window.winfo_children() if isinstance(w, tk.Toplevel))
+        widgets = dialog.winfo_children()[0].winfo_children()
+        save = next(w for w in widgets if isinstance(w, ttk.Button))
+        target = Path(self.temp.name) / '用户选择的排错包.zip'
+        with patch('desktop.filedialog.asksaveasfilename', return_value=''), patch('desktop.reveal_file') as reveal:
+            save.invoke()
+            reveal.assert_not_called()
+            self.assertTrue(dialog.winfo_exists())
+        with patch('desktop.filedialog.asksaveasfilename', return_value=str(target)), patch('desktop.reveal_file') as reveal:
+            save.invoke()
+            reveal.assert_called_once_with(target)
+        with zipfile.ZipFile(target) as archive:
+            self.assertEqual(json.loads(archive.read('manifest.json'))['operation_id'], expected_id)
+
+    def test_callback_failure_has_persistent_exception_and_export_action(self):
+        try:
+            raise RuntimeError('PRIVATE_CALLBACK_DETAIL')
+        except RuntimeError as error:
+            self.window.report_callback_exception(type(error), error, error.__traceback__)
+        self.assertIn('导出排错日志', self.buttons())
+        record = self.ui.service.diagnostics.record
+        self.assertEqual(record['status'], 'failed')
+        self.assertNotIn('PRIVATE_CALLBACK_DETAIL', json.dumps(record))
+        self.assertTrue(any(e.get('exception', {}).get('type') == 'RuntimeError' for e in record['events']))
+
+    def test_uncaught_background_error_is_failed_and_only_queues_ui_update(self):
+        def fail():
+            raise RuntimeError('PRIVATE_THREAD_DETAIL')
+        with patch('threading.excepthook', side_effect=lambda args: self.ui.handle_thread_error(args.exc_value)), \
+                patch.object(self.ui, 'show_issue') as show:
+            worker = threading.Thread(target=fail)
+            worker.start()
+            worker.join(5)
+            self.assertFalse(worker.is_alive())
+            show.assert_not_called()
+        record = self.ui.service.diagnostics.record
+        self.assertEqual(record['status'], 'failed')
+        self.assertNotIn('PRIVATE_THREAD_DETAIL', json.dumps(record))
+        self.assertTrue(any(e['event'] == 'unhandled_thread_failed' for e in record['events']))
+        self.assertEqual(self.ui.job.events.get_nowait()[0], 'error')
+
     def test_picker_cancel_keeps_current_waiting_job(self):
         self.ui.service.save_settings({**CONFIG, 'downloads_dir': self.temp.name})
         self.ui.start()

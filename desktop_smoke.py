@@ -74,6 +74,7 @@ def self_test(report_path):
                 'fetched_at': '2026-09-06T00:00:00Z', 'collector_revision': '2026-09-06.8',
                 'responses': responses}), encoding='utf-8')
             result = service.run(capture=capture)
+            committed_operation = service.diagnostics.record['operation_id']
             assert result['issue'] is None and result['report']['event_count'] == 1
             assert result['apple_issue'] is None and result['apple_report']['event_count'] == 1
             calendar_bytes = (root / 'output/calendar.ics').read_bytes()
@@ -147,6 +148,18 @@ def self_test(report_path):
             assert [r[2:5] for r in merged_csv[1:]] == [['1', '1', '第一节教师'], ['2', '2', '第二节教师']]
             assert len({e['uid'] for e in load_current(merged_service.root)['events']}) == 2
             report['combined_split_exports'] = True
+            import zipfile
+            support = root / 'support-smoke.zip'
+            service.diagnostics.export(support, operation_id=committed_operation)
+            with zipfile.ZipFile(support) as archive:
+                assert archive.testzip() is None
+                assert json.loads(archive.read('manifest.json'))['format'] == 'shsmu-support-v1'
+                assert json.loads(archive.read('repro.json'))['format'] == 'shsmu-support-v1'
+                assert 'commit_finished' in archive.read('events.jsonl').decode('utf-8')
+                shared_bytes = b'\n'.join(archive.read(name) for name in archive.namelist())
+                assert all(value.encode('utf-8') not in shared_bytes
+                           for value in ('运行验证课程', '示例教师', '示例教室', str(root)))
+            report['diagnostic_package'] = True
             window = tk.Tk()
             window.withdraw()
             ui = AssistantWindow(window, root)
@@ -164,13 +177,16 @@ def self_test(report_path):
             assert 'phone_confirmed_csv' not in service.state()
             ui.show_settings()
             window.update_idletasks()
+            ui.show_diagnostics()
+            window.update_idletasks()
             ui.dispose()
             window, ui = None, None
             report.update(status='PASS', checks=['bundled resources', 'first-run and interrupted onboarding startup',
                 'existing JSON recovery offered on reopened setup',
                 'completed capture opens update home', 'local import and WakeUp CSV',
                 'Apple ICS dates and content', 'repeat import preserves UID and ICS', 'bundled onboarding image',
-                'Tk result, settings and both iPhone guides', 'independent synthetic phone confirmation'],
+                'Tk result, settings and both iPhone guides', 'independent synthetic phone confirmation',
+                'redacted support ZIP and diagnostic dialog'],
                 data_outside_bundle=not str(root).startswith(str(getattr(sys, '_MEIPASS', '__not_frozen__'))),
                 gui_os='Windows' if os.name == 'nt' else os.name)
             if getattr(sys, 'frozen', False):
@@ -179,6 +195,9 @@ def self_test(report_path):
                                                           for m in (icalendar, tzdata, tk))
     except Exception as error:
         report['error_type'] = type(error).__name__
+        import traceback
+        report['error_frames'] = [{'file': Path(frame.filename).name, 'function': frame.name, 'line': frame.lineno}
+                                  for frame in traceback.extract_tb(error.__traceback__)]
     finally:
         if ui is not None:
             ui.dispose()

@@ -46,7 +46,7 @@ class CaptureSource:
             raise SourceError("采集文件不是完整的 UTF-8 JSON。请等待下载完成，或在采集完成面板点击“重新下载采集文件”。") from None
         if not isinstance(self.capture, dict):
             raise SourceError("文件不是课表 JSON 对象，请选择 shsmu-capture 开头的完整采集文件。")
-        if self.capture.get('format') == 'shsmu-diagnostic-v1':
+        if self.capture.get('format') in ('shsmu-diagnostic-v1', 'shsmu-support-v1', 'shsmu-browser-support-v1', 'shsmu-support-capture-v1'):
             raise SourceError("这是失败诊断文件，不能导入课表；请按浏览器页面提示继续或重新采集，选择 shsmu-capture 开头的文件。")
         if self.capture.get("format") != "shsmu-capture-v1" or self.capture.get("complete") is not True:
             raise SourceError("文件不是已经完整采集的课表响应。")

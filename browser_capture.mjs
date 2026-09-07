@@ -21,6 +21,7 @@ export async function collectSchedule(config, io) {
   async function request(path,params) {
     const response=scrub(await io.fetchJSON(path,params));
     responses.push({path,params,response});
+    try { io.onResponseRead?.(responses[responses.length - 1]); } catch {}
     return response;
   }
   const account_key=await io.accountKey();

@@ -4,13 +4,11 @@
 
 学生版面向 Windows 64 位电脑，不需要安装 Python、使用命令行或修改配置文件。使用平时登录教务的浏览器，适用于上海交通大学医学院本科教务系统 jwstu.shsmu.edu.cn。
 
-**[点击下载 Windows 完整软件包](https://github.com/lhwen686/shsmu-schedule-sync/releases/download/v1.0.0-rc7/SHSMU-Schedule-Assistant-1.0.0-rc7-Windows-x64.zip)**。下载后右键选择“全部解压缩”，里面就是中文命名的软件和使用说明。单独下载软件或查看图文说明，请到 [下载页](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc7)。
+**[点击下载 Windows 完整软件包](https://github.com/lhwen686/shsmu-schedule-sync/releases/download/v1.0.0-rc11/SHSMU-Schedule-Assistant-1.0.0-rc11-Windows-x64.zip)**。下载后右键选择“全部解压缩”，里面就是中文命名的软件和使用说明。单独下载软件或查看图文说明，请到 [下载页](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc11)。
 
-当前为 **1.0.0-rc7 候选版**，增加书签操作、WakeUp 作息与学期日期的重点提醒，并用大白话说明遇到安全软件提醒时该怎么办。自动检查和实机验收分开记录，尚未完成的环节见 [学生版验收](STUDENT_ACCEPTANCE.md)。原命令行工具继续可用，安装与维护命令见 [维护说明](MAINTENANCE.md)。
+当前为 **1.0.0-rc11 候选版**，包含 rc10 的累计课表修复，并新增自动执行记录及“导出排错日志”。自动检查与实机验收分开记录，尚未完成的环节见 [学生版验收](STUDENT_ACCEPTANCE.md)。原命令行工具继续可用，安装与维护命令见 [维护说明](MAINTENANCE.md)。
 
-本分支为 **1.0.0-rc8 本地修复候选版，尚未发布**：补齐首次引导页的已下载 JSON 导入入口，以及下载后继续导出的提示。上方公开下载仍为 rc7，旧版也可按下方步骤处理已下载文件。
-
-更新助手后，按安装页指引手动替换书签，才会显示新版下载提示；已有 JSON 可直接选择并处理。
+**更新后请按引导手动替换一次书签**，新版采集面板显示 `2026-09-07.10`，才能记录浏览器请求过程。已有旧 JSON 仍可直接处理，但无法补回当时没有记录的浏览器日志。
 
 ## 第一次使用
 
@@ -57,6 +55,14 @@ Edge 叫“收藏夹栏”，Chrome 叫“书签栏”，Firefox 叫“书签工
 官方依据：[从“邮件”导入 ICS](https://support.apple.com/zh-cn/guide/iphone/ipha0d932e96/ios)、[在 iPhone 设置多个日历](https://support.apple.com/zh-cn/guide/iphone/iph3d1110d4/ios)。
 
 ## 遇到问题
+
+### 把排错日志发给维护者
+
+1. 在错误提示页，或 **遇到问题 → 导出排错日志**，选择出问题的那次操作。
+2. 点 **保存 ZIP 并打开所在位置**，把选中的 ZIP 文件发给维护者。关闭、重新打开软件后也能选择历史记录。
+3. 如果浏览器无法下载，点网页的 **复制排错信息**，把完整文本粘贴到导出窗口的补充框，再保存 ZIP。
+
+日志自动保存在本机，默认保留 30 天、最多 50 MB；软件不会自动发送。分享包替换姓名、学号、课程文字及标识，仍保留日期、节次和关联结构，请仅发给维护者。它用于排错，不能导入手机；材料缺失或日志写入失败会注明。若软件完全无法启动、书签未运行或手机操作出错，日志可能还不够，维护者会说明需要补充的具体信息。
 
 ### 只下载到 shsmu-capture-…json，没有 WakeUp 或日历文件
 

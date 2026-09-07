@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from core import DataError, content_hash, export_ics, human_diff, ids, normalize, parse_time, reconcile
 from source import CaptureSource, LoginRequired, SourceError, request_key, scrub, write_json
 from prepare import build_bookmark, downloads_folder
+from diagnostics import notify
 from webcal import UploadError, publish_current
 
 ROOT = Path(__file__).resolve().parent
@@ -113,11 +114,12 @@ def check_semester(title, expected):
         raise DataError("教务返回的学期与配置不同，未替换当前课表。请核对当前学期与同步日期。")
 
 
-def fetch_complete(source, config, run_dir, progress=print, cancel=None):
+def fetch_complete(source, config, run_dir, progress=print, cancel=None, observe=None):
     all_rows, coverage = [], []
     for start, end in month_ranges(config["start"], config["end_exclusive"]):
         check_cancelled(cancel)
         raw = source.timetable(start, end)
+        notify(observe, 'month_read', start=start, end_exclusive=end, count=len(raw['List']))
         write_json(run_dir / "raw" / f"timetable-{start}-{end}.json", raw)
         # Verified empty months have Title:null; nonempty ranges must match.
         if raw["List"] or str(raw.get("Title") or '').strip():
@@ -144,6 +146,7 @@ def fetch_complete(source, config, run_dir, progress=print, cancel=None):
                           ('MCSID', 'CSID', 'CurriculumID', 'XXKMID', 'CurriculumType')})
         if key not in detail_cache:
             result = source.details(row)
+            notify(observe, 'detail_read', index=index, count=len(result) if isinstance(result, list) else None)
             if not isinstance(result, list) or any(not isinstance(d, dict) for d in result):
                 raise DataError("教学日历响应不是预期的数组。")
             if not result:
@@ -242,7 +245,7 @@ def exclusive_sync(root):
                 fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def wait_capture(folder, timeout=1800, *, progress=print, cancel=None, choose=None, paused=None):
+def wait_capture(folder, timeout=1800, *, progress=print, cancel=None, choose=None, paused=None, observe=None):
     if not folder.is_dir():
         raise SourceError("下载目录不存在；请修正 downloads_dir，或双击“导入已下载课表.cmd”选择已保存的 JSON。")
     def scan(pattern):
@@ -257,6 +260,9 @@ def wait_capture(folder, timeout=1800, *, progress=print, cancel=None, choose=No
         return found
     before = scan('shsmu-capture-*.json')
     diagnostics = scan('shsmu-diagnostic-*.json')
+    diagnostic_seen = dict(diagnostics)
+    diagnostic_last = dict(diagnostics)
+    notify(observe, 'waiting_started', exists=True)
     progress(f"等待 浏览器 下载的新课表：{folder}")
     progress("请在正常登录后显示本人学号的教务首页点击“同步医学院课表”书签。")
     if choose is None:
@@ -270,14 +276,21 @@ def wait_capture(folder, timeout=1800, *, progress=print, cancel=None, choose=No
             continue
         selected = choose() if choose is not None else None
         if selected is not None:
+            notify(observe, 'file_selected')
             return Path(selected)
         current = scan('shsmu-capture-*.json')
         candidates = [p for p, signature in current.items()
                       if signature != before.get(p) and signature == last_seen.get(p) and signature[0] > 0]
         if candidates:
+            notify(observe, 'download_received', download_observed=True)
             return max(candidates, key=lambda p: current[p][1])
         last_seen = current
         new_diagnostics = scan('shsmu-diagnostic-*.json')
+        for path, signature in new_diagnostics.items():
+            if signature != diagnostic_seen.get(path) and signature == diagnostic_last.get(path) and signature[0] > 0:
+                notify(observe, 'browser_diagnostic_file', diagnostic_path=path)
+                diagnostic_seen[path] = signature
+        diagnostic_last = new_diagnostics
         if any(signature != diagnostics.get(p) for p, signature in new_diagnostics.items()):
             progress("收到失败诊断文件，尚未收到完整课表。请查看 浏览器 的错误提示；可按页面提示继续或重新采集，本窗口继续等待。")
         diagnostics = new_diagnostics
@@ -286,7 +299,7 @@ def wait_capture(folder, timeout=1800, *, progress=print, cancel=None, choose=No
 
 
 def import_capture_unlocked(root, config, capture_path, *, new_term=False, progress=print,
-                            cancel=None, on_commit=None):
+                            cancel=None, on_commit=None, observe=None):
     """Shared import service. Caller owns exclusive_sync for the entire operation.
 
     No upload or WakeUp export occurs here; callers select those explicit actions.
@@ -294,11 +307,14 @@ def import_capture_unlocked(root, config, capture_path, *, new_term=False, progr
     """
     check_cancelled(cancel)
     previous = load_current(root)
+    notify(observe, 'previous_loaded', previous=previous)
     repair_exports(root)
     source = CaptureSource(capture_path, config)
-    capture_hash = content_hash(source.capture)
+    notify(observe, 'input_validated', input=source.capture)
+    capture_hash = content_hash({k: v for k, v in source.capture.items() if k != 'diagnostics'})
     revision = str(source.capture.get('collector_revision', ''))
     if previous and previous.get('capture_hash') == capture_hash:
+        notify(observe, 'duplicate_capture', duplicate=True)
         progress("该文件已经处理，没有新的实时采集；当前课表与日历保持原版本。")
         return ImportResult(previous, {'synced_at': previous['synced_at'],
                             'summary': {'ADDED': 0, 'REMOVED': 0, 'CHANGED': 0},
@@ -322,7 +338,8 @@ def import_capture_unlocked(root, config, capture_path, *, new_term=False, progr
     scope_changed = previous is not None and previous['scope'] != scope
     if scope_changed and not new_term:
         raise DataError("学期或范围已改变，请核对配置及书签；确认新学期时使用 --new-term。")
-    bundle = fetch_complete(source, config, run_dir, progress=progress, cancel=cancel)
+    bundle = fetch_complete(source, config, run_dir, progress=progress, cancel=cancel, observe=observe)
+    notify(observe, 'normalizing', bundle=bundle)
     events = normalize(bundle['items'], config['start'], config['end_exclusive'])
     matching_previous = None if scope_changed else previous
     if (scope_changed and previous['scope']['semester'] == scope['semester']
@@ -332,6 +349,7 @@ def import_capture_unlocked(root, config, capture_path, *, new_term=False, progr
         # Account equality was checked above, and new_term explicitly permits this scope.
         matching_previous = {**previous, 'scope': scope}
     snapshot, diff = reconcile(events, matching_previous, scope, now)
+    notify(observe, 'reconciled', event_count=len(events), **diff['summary'])
     snapshot['coverage'] = bundle['coverage']
     snapshot['request_count'] = bundle['request_count']
     snapshot['capture_hash'] = capture_hash
@@ -339,7 +357,9 @@ def import_capture_unlocked(root, config, capture_path, *, new_term=False, progr
     check_cancelled(cancel)
     if on_commit is not None:
         on_commit()
+    notify(observe, 'commit_started')
     publish(root, run_dir, snapshot, diff, previous)
+    notify(observe, 'commit_finished', success=True)
     progress(human_diff(diff))
     progress(f"本地已保存 {len(events)} 个有效事件。日历：{root / 'output/calendar.ics'}")
     return ImportResult(snapshot, diff, False, revision)

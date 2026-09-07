@@ -1,6 +1,10 @@
 """Chinese Windows front end. Browser login and bookmark installation stay manual."""
 from __future__ import annotations
 
+if __name__ == '__main__':
+    from diagnostics import install_startup_hook
+    install_startup_hook()
+
 import argparse
 import json
 import os
@@ -96,7 +100,7 @@ class AssistantWindow:
         self.window.geometry(f'{width}x{height}')
         self.window.minsize(min(round(720 * scale), width), min(round(520 * scale), height))
         self.window.protocol('WM_DELETE_WINDOW', self.close)
-        self.window.report_callback_exception = lambda kind, error, tb: self.show_issue(explain_error(error))
+        self.window.report_callback_exception = lambda kind, error, tb: self.handle_error(error, 'ui_callback_failed')
         self._style()
         header = ttk.Frame(window, padding=(28, 18))
         header.pack(fill='x')
@@ -129,7 +133,10 @@ class AssistantWindow:
             self.service.initialize()
             self.show_home()
         except Exception as error:
-            self.show_issue(explain_error(error))
+            if missing_saved_root:
+                from diagnostics import DiagnosticRecorder
+                self.service.diagnostics = DiagnosticRecorder(self.base)
+            self.handle_error(error, 'startup_failed')
         self.poll_id = self.window.after(100, self.poll)
 
     def _style(self):
@@ -326,6 +333,10 @@ class AssistantWindow:
     def start(self, capture=None, export_only=False):
         if self.running or self.job.busy:
             return
+        # Dispose unreachable Tk objects on their owning thread before the worker
+        # allocates diagnostic JSON; CPython's cyclic GC may run in that worker.
+        import gc
+        gc.collect()
         self.details = []
         self.last_result = None
         self.running = True
@@ -490,6 +501,7 @@ class AssistantWindow:
             self.show_issue(explain_error(DataError('文件已变化或不可用，请重新打开 WakeUp 指引并核对后再确认。'), exporting=True))
             return
         self.service.save_state(phone_confirmed_csv=report['csv_sha256'])
+        self.service.diagnostics.event('wakeup_phone_confirmed', success=True)
         self.clear('你的手工确认', '已记录 WakeUp 手机核对', '以后学校课表有更新，再打开助手获取新课表，并重新在 WakeUp 导入。')
         self.button('回到首页', self.show_home, primary=True)
 
@@ -523,6 +535,7 @@ class AssistantWindow:
                                           exporting=True, apple=True))
             return
         self.service.save_state(phone_confirmed_ics=report['ics_sha256'])
+        self.service.diagnostics.event('apple_phone_confirmed', success=True)
         self.clear('你的手工确认', '已记录苹果日历手机核对', '以后学校课表有更新，再获取新课表，并通过邮件附件重新导入新的专用课表日历。')
         self.button('回到首页', self.show_home, primary=True)
 
@@ -533,16 +546,85 @@ class AssistantWindow:
         self.button('重新生成导入文件', lambda: self.start(export_only=True))
         self.button('打开设置', self.show_settings)
         self.button('查看技术详情', self.show_details)
+        self.button('导出排错日志', self.show_diagnostics, primary=True)
+
+    def record_error(self, error, stage):
+        log = self.service.diagnostics
+        separate = not self.job.busy and (not log.record or log.record['status'] not in ('running', 'failed'))
+        if separate:
+            log.begin('activity')
+        log.exception(error, stage=stage)
+        if separate:
+            log.capture_committed(self.service.root)
+            log.finish('failed')
+
+    def handle_thread_error(self, error):
+        self.record_error(error, 'unhandled_thread_failed')
+        self.job.events.put(('error', explain_error(error)))
+
+    def handle_error(self, error, stage):
+        self.record_error(error, stage)
+        self.show_issue(explain_error(error))
+
+    def show_diagnostics(self):
+        log = self.service.diagnostics
+        records = log.records()
+        if not records:
+            log.begin('activity')
+            records = log.records()
+        dialog = tk.Toplevel(self.window)
+        dialog.title('导出排错日志')
+        dialog.geometry('720x480')
+        dialog.minsize(640, 450)
+        body = ttk.Frame(dialog, padding=18)
+        body.pack(fill='both', expand=True)
+        ttk.Label(body, text='选择出问题的那次操作，导出后把 ZIP 文件发给维护者。', wraplength=650).pack(anchor='w', pady=(0, 12))
+        status_names = {'success': '完成', 'partial': '部分失败', 'failed': '失败', 'cancelled': '取消',
+                        'running': '进行中', 'interrupted': '意外中断'}
+        kind_names = {'sync': '获取课表', 'export': '重新导出', 'startup': '启动', 'settings': '设置',
+                      'term_settings': '学期设置', 'bookmark_confirmation': '书签确认', 'activity': '操作记录'}
+        choices = [f"{readable_time(r['started_at'])} · {kind_names.get(r['kind'], '操作')} · {status_names.get(r['status'], '未知')} · {r['operation_id'][:8]}" for r in records]
+        selection = ttk.Combobox(body, values=choices, state='readonly', width=75)
+        selection.pack(fill='x', pady=(0, 14))
+        default = 0 if records[0]['status'] == 'failed' else next((i for i, r in enumerate(records) if r['kind'] in ('sync', 'export')), 0)
+        selection.current(default)
+        ttk.Label(body, text='已替换姓名、学号、课程文字及标识，仍包含日期、节次等排错信息；请仅发给维护者。\n日志默认在本机保留 30 天，最多 50 MB。', wraplength=650).pack(anchor='w', pady=(0, 12))
+        if log.storage_warning:
+            ttk.Label(body, text='部分记录未能保存到磁盘。本窗口会尝试从内存导出，请选择可写的位置。', wraplength=650).pack(anchor='w', pady=(0, 10))
+        ttk.Label(body, text='可选：粘贴网页“复制排错信息”中的 JSON（浏览器无法下载时使用）').pack(anchor='w')
+        extra = tk.Text(body, height=6, wrap='word')
+        extra.pack(fill='both', expand=True, pady=(6, 12))
+        def export():
+            chosen = records[selection.current()]
+            target = filedialog.asksaveasfilename(parent=dialog, title='保存排错日志', defaultextension='.zip',
+                initialfile='课表助手排错日志-' + chosen['operation_id'][:8] + '.zip',
+                filetypes=[('排错日志 ZIP', '*.zip')])
+            if not target:
+                return
+            try:
+                path = log.export(target, chosen['operation_id'], browser_text=extra.get('1.0', 'end'))
+            except Exception as error:
+                log.exception(error, stage='support_export_failed')
+                messagebox.showerror('排错日志尚未导出', str(error) if isinstance(error, ValueError) else
+                    '文件没有保存成功。请检查磁盘空间和文件夹权限，换一个位置重试。', parent=dialog)
+                return
+            try:
+                reveal_file(path)
+            except OSError:
+                messagebox.showinfo('排错日志已保存', '请把这个文件发给维护者：\n' + str(path), parent=dialog)
+            dialog.destroy()
+        ttk.Button(body, text='保存 ZIP 并打开所在位置', command=export).pack(anchor='w')
 
     def show_details(self):
         dialog = tk.Toplevel(self.window)
-        dialog.title('处理详情（仅保留在本窗口）')
+        dialog.title('处理详情')
         dialog.geometry('760x440')
         area = tk.Text(dialog, wrap='word', font=('Microsoft YaHei UI', 10), padx=16, pady=12)
         area.pack(fill='both', expand=True)
         area.insert('end', '\n\n'.join(self.details[-35:]) or '暂时没有处理记录。')
         area.configure(state='disabled')
         ttk.Button(dialog, text='关闭', command=dialog.destroy).pack(pady=10)
+        ttk.Button(dialog, text='导出排错日志', command=self.show_diagnostics).pack(pady=(0, 10))
 
     def show_help(self):
         self.clear('遇到问题时，从这里继续', '不用从头再来')
@@ -554,6 +636,7 @@ class AssistantWindow:
         self.label('从已保存的完整课表重新生成 WakeUp 和苹果日历文件，无需重新采集。作息设置只影响 WakeUp。', 'Small.TLabel')
         self.button('重新查看书签安装引导', lambda: self.show_setup(2), enabled=not self.running)
         self.button('查看技术详情', self.show_details)
+        self.button('导出排错日志', self.show_diagnostics, primary=True)
         self.label('登录过期：在添加了课表按钮的浏览器中正常打开教务首页并登录，然后点击课表按钮。\n'
                    '换了浏览器：在新浏览器重新添加课表按钮并正常登录；已保存的课表不用搬动。\n'
                    '文件在别处：从浏览器下载列表查看位置，然后选择已下载文件。\n'
@@ -572,6 +655,7 @@ class AssistantWindow:
                 initialdir=str(folder if folder.is_dir() else downloads_folder()),
                 filetypes=[('完整课表文件', 'shsmu-capture-*.json'), ('JSON 文件', '*.json')])
             if selected:
+                self.service.diagnostics.event('file_picker_selected')
                 if was_waiting:
                     self.job.submit_file(selected)
                 else:
@@ -609,6 +693,10 @@ class AssistantWindow:
         candidate = DesktopService(selected)
         if not candidate.config_path.is_file() and not (candidate.root / 'data/current.json').is_file():
             if any(candidate.root.iterdir()):
+                log = self.service.diagnostics
+                log.begin('settings')
+                log.event('data_directory_rejected', code='VALIDATION')
+                log.finish('failed')
                 messagebox.showerror('请选择课表目录或空目录', '这个非空目录不是已有课表项目。请选原项目目录，或新建一个空文件夹。', parent=self.window)
                 return
             if not messagebox.askyesno('新建独立课表', '为这个目录新建独立课表？不会复制其他人的课表或上传配置。', parent=self.window):
@@ -617,6 +705,8 @@ class AssistantWindow:
         # Validate history before switching; never migrate it or reset identities.
         load_current(candidate.root)
         atomic_write(self.preference_path, json_bytes({'data_root': str(candidate.root)}))
+        self.service.diagnostics.event('data_directory_left')
+        candidate.diagnostics.event('data_directory_selected')
         self.service, self.job = candidate, DesktopJob(candidate)
         self.last_result = None
         self.show_home()
@@ -627,7 +717,8 @@ class AssistantWindow:
         self.clear('设置 · 不需要修改配置文件', '学期、作息和保存位置')
         try:
             config = self.service.config()
-        except DataError:
+        except DataError as error:
+            self.record_error(error, 'settings_read_failed')
             config = load_settings(self.service.resources / 'config.example.json')
             self.label('原学期设置无法读取，下面显示示例值。请核对后保存；历史课表保留。')
         notebook = ttk.Notebook(self.content)
@@ -649,7 +740,8 @@ class AssistantWindow:
         slots_broken = False
         try:
             times = load_slot_times(self.service.root) or slot_times()
-        except DataError:
+        except DataError as error:
+            self.record_error(error, 'slots_read_failed')
             slots_broken = True
             times = slot_times()
             self.label('原作息无法读取，下面显示模板。请核对本人作息后保存。', parent=times_tab)
@@ -694,9 +786,11 @@ class AssistantWindow:
                         return
                 self.service.save_settings(updated, values if slots_broken or values != original_times else None)
                 self.show_home()
-            except (ValueError, OverflowError):
+            except (ValueError, OverflowError) as error:
+                self.record_error(error, 'settings_input_failed')
                 messagebox.showerror('请检查日期', '年份使用四位数字，日期使用有效的年-月-日，例如 2026-09-07。', parent=self.window)
             except Exception as error:
+                self.record_error(error, 'settings_failed')
                 issue = explain_error(error)
                 messagebox.showerror('设置尚未保存', issue.detail, parent=self.window)
         self.button('保存设置', save, primary=True)
@@ -710,11 +804,15 @@ class AssistantWindow:
             self.dispose()
 
     def dispose(self):
+        self.service.diagnostics.event('window_closed')
         if self.poll_id:
             self.window.after_cancel(self.poll_id)
             self.poll_id = None
         self.window.update_idletasks()
         self.window.destroy()
+        self.window.report_callback_exception = None
+        self.status = None
+        self.wrapping = []
 
 
 def main():
@@ -733,7 +831,11 @@ def main():
         except (AttributeError, OSError):
             pass
     window = tk.Tk()
-    AssistantWindow(window, args.data_root)
+    ui = AssistantWindow(window, args.data_root)
+    import sys
+    import threading
+    sys.excepthook = lambda kind, error, tb: ui.handle_error(error, 'unhandled_exception')
+    threading.excepthook = lambda args: ui.handle_thread_error(args.exc_value)
     window.mainloop()
 
 

@@ -12,6 +12,7 @@
 | 书签、请求、下载、浏览器兼容 | [prepare.py](prepare.py)、[browser_ui.mjs](browser_ui.mjs)、[browser_capture.mjs](browser_capture.mjs)、[browser_transport.mjs](browser_transport.mjs)、[browser_compat.mjs](browser_compat.mjs) | [test_capture.mjs](test_capture.mjs)、[test_transport.mjs](test_transport.mjs)、[test_browser_compat.mjs](test_browser_compat.mjs)；接口问题再读 [DISCOVERY](DISCOVERY.md) 历史观察 |
 | 来源、账号、范围、UID、提交及恢复 | [source.py](source.py)、[core.py](core.py)、[sync.py](sync.py) | [test_sync.py](test_sync.py)、[test_workflow.py](test_workflow.py)；涉及桌面调用时加相关桌面用例 |
 | 桌面引导、取消、独立导出及手机确认 | [desktop.py](desktop.py)、[desktop_service.py](desktop_service.py) | [test_desktop.py](test_desktop.py)；对应 [学生验收](STUDENT_ACCEPTANCE.md) 项目 |
+| 执行记录、排错包及隐私 | [diagnostics.py](diagnostics.py)、[browser_diagnostics.mjs](browser_diagnostics.mjs)；桌面及采集调用点 | [test_diagnostics.py](test_diagnostics.py)、相关 desktop / capture / transport 用例；诊断材料只在隔离目录重放 |
 | WakeUp 作息、周次、CSV | [wakeup.py](wakeup.py) | [test_wakeup.py](test_wakeup.py)、相关 workflow / desktop 用例 |
 | CMD、安装错误、已下载文件恢复 | 相应 CMD、[sync.py](sync.py)、[.gitattributes](.gitattributes) | [test_usability.py](test_usability.py)、相关 workflow 用例；[USABILITY](USABILITY.md) 是历史修补说明 |
 | CLI WebCal、服务端 | [webcal.py](webcal.py)、[deploy/webcal_server.py](deploy/webcal_server.py) | [test_webcal.py](test_webcal.py)、[部署说明](deploy/README.md)；不因此调用真实服务 |
@@ -31,6 +32,8 @@
 
 <a id="fix-workflow"></a>
 ## 一次修复如何完成
+
+rc11 起优先让同学在“遇到问题 → 导出排错日志”发送一个 ZIP。先读 `summary.txt` 和 `manifest.json` 确认版本、操作、结果、缺失材料，再沿 `events.jsonl` 的阶段和异常位置定位；`repro.json` 是去标识的复现材料。它含日期、节次等个人课表结构，仅在忽略目录处理，不放进公开 issue、提交或 Release。复现必须使用隔离目录；`shsmu-support-v1` / `shsmu-support-capture-v1` 不能作为个人课表导入。`OMITTED_FIELDS` 表示未允许分享的字段已省略；`MATERIAL_LIMIT` / `EVENT_LIMIT` / `WRITE_FAILED` / `INCOMPLETE_RECORD` 表示证据不完整，不能据此宣布已经证明根因。启动器在 Python 运行之前失败、浏览器未运行书签、操作系统拦截以及真实手机状态仍可能需要补充证据。
 
 1. **登记与定界。** 在 VERIFICATION 的记录区追加一个问题编号，例如 `BUG-YYYYMMDD-01`；文档整理使用 `DOCS-YYYYMMDD-01`。记录症状、影响、基线提交和现有未提交改动。先检索这个编号及相关函数，确认问题没有已完成的修复。
 2. **保留复现。** 写清触发步骤、预期和实际结果、运行环境及数据类型。程序缺陷优先用最小合成数据在改前版本复现，保留失败用例名称和输出；无法复现或不适合自动化时明确说明，不宣称已证实根因。

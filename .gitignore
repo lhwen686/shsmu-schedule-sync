@@ -28,3 +28,7 @@ dist/
 # Browser downloads must remain private even in the repository root.
 shsmu-capture-*.json
 shsmu-diagnostic-*.json
+shsmu-support-*.zip
+课表助手排错日志-*.zip
+*.record.json
+*.material.json

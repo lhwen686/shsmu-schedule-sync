@@ -16,8 +16,8 @@ from sync import (SyncCancelled, atomic_write, capture_folder, check_cancelled,
                   exclusive_sync, import_capture_unlocked, json_bytes, load_current,
                   load_settings, validate_settings, wait_capture)
 from wakeup import export_current_unlocked, load_slot_times, slot_times, validate_slot_times
+from diagnostics import APP_VERSION, DiagnosticRecorder, recorded
 
-APP_VERSION = '1.0.0-rc10'
 RESOURCE_ROOT = Path(__file__).resolve().parent
 HOME_URL = 'https://jwstu.shsmu.edu.cn/Home'
 
@@ -96,6 +96,7 @@ class DesktopService:
         self.root = Path(root).resolve()
         self.resources = Path(resources)
         self._bookmark_acknowledged = False
+        self.diagnostics = DiagnosticRecorder(self.root)
 
     @property
     def config_path(self):
@@ -120,6 +121,7 @@ class DesktopService:
         state.update(values)
         atomic_write(self.root / 'local/desktop-state.json', json_bytes(state))
 
+    @recorded('startup')
     def initialize(self):
         with exclusive_sync(self.root):
             if (self.root / 'data/schedule.json').exists() and not (self.root / 'data/current.json').exists():
@@ -135,6 +137,7 @@ class DesktopService:
                            output=self.bookmark_path)
             return config
 
+    @recorded('term_settings')
     def confirm_term(self):
         with exclusive_sync(self.root):
             config = student_term_config(self.config())
@@ -143,6 +146,7 @@ class DesktopService:
                            output=self.bookmark_path)
             self.save_state(confirmed_term=term_key(config))
 
+    @recorded('bookmark_confirmation')
     def acknowledge_bookmark(self):
         with exclusive_sync(self.root):
             self.save_state(bookmark_ack=self.bookmark_fingerprint())
@@ -169,7 +173,11 @@ class DesktopService:
             return 2
         return 0
 
+    @recorded('settings')
     def save_settings(self, config, times=None, *, confirm_term=True):
+        self.diagnostics.attach('settings', config)
+        if times is not None:
+            self.diagnostics.attach('slots', times)
         validate_settings(config)
         if times is not None:
             validate_slot_times(times)
@@ -222,7 +230,8 @@ class DesktopService:
                         or manifest['guide_hash'] != hashlib.sha256((self.root / 'output/wakeup导入说明.txt').read_bytes()).hexdigest()):
                     return None
                 return report
-        except (OSError, ValueError, KeyError, TypeError, DataError):
+        except (OSError, ValueError, KeyError, TypeError, DataError) as error:
+            self.diagnostics.exception(error, stage='wakeup_readiness_failed')
             return None
 
     def _apple_export_unlocked(self, *, repair=False):
@@ -252,14 +261,17 @@ class DesktopService:
         try:
             with exclusive_sync(self.root):
                 return self._apple_export_unlocked()
-        except (OSError, ValueError, KeyError, TypeError, DataError):
+        except (OSError, ValueError, KeyError, TypeError, DataError) as error:
+            self.diagnostics.exception(error, stage='apple_readiness_failed')
             return None
 
+    @recorded('sync')
     def run(self, *, capture=None, export_only=False, cancel=None, choose=None, paused=None,
             emit=lambda stage, value: None):
         """One lock across waiting, import and export. Intentionally never uploads."""
         with exclusive_sync(self.root):
             config = self.config()
+            self.diagnostics.attach('settings', config)
             check_cancelled(cancel)
             self.save_state(export_ready=False)
             imported = None
@@ -267,13 +279,14 @@ class DesktopService:
                 if capture is None:
                     folder = capture_folder(config, self.config_path)
                     capture = wait_capture(folder, progress=lambda text: emit('waiting', text),
-                                           cancel=cancel, choose=choose, paused=paused)
+                                           cancel=cancel, choose=choose, paused=paused, observe=self.diagnostics.observe)
                 check_cancelled(cancel)
+                self.diagnostics.attach_file('input', capture)
                 emit('processing', '正在核对完整课表…')
                 imported = import_capture_unlocked(self.root, config, Path(capture),
                     new_term=self.state().get('confirmed_term') == term_key(config),
                     progress=lambda text: emit('detail', text), cancel=cancel,
-                    on_commit=lambda: emit('committing', '正在保存完整课表，请稍候…'))
+                    on_commit=lambda: emit('committing', '正在保存完整课表，请稍候…'), observe=self.diagnostics.observe)
                 self.save_state(collector_revision=imported.collector_revision)
             else:
                 current = load_current(self.root)
@@ -283,14 +296,21 @@ class DesktopService:
                     raise DataError('学期设置已经改变，请先获取当前选择学期的课表。')
             # Do not cancel after a successful commit: finish creating its output.
             emit('exporting', '课表已保存，正在准备 WakeUp 和苹果日历文件…')
+            self.diagnostics.capture_committed(self.root)
             report = apple_report = issue = apple_issue = None
             try:
+                self.diagnostics.event('apple_export_started')
                 apple_report = self._apple_export_unlocked(repair=True)
+                self.diagnostics.event('apple_export_finished', success=True, event_count=apple_report['event_count'])
             except Exception as error:
+                self.diagnostics.exception(error, stage='apple_export_failed')
                 apple_issue = explain_error(error, exporting=True, apple=True)
             try:
+                self.diagnostics.event('wakeup_export_started')
                 report = self._export_unlocked()
+                self.diagnostics.event('wakeup_export_finished', success=True, event_count=report['event_count'])
             except Exception as error:
+                self.diagnostics.exception(error, stage='wakeup_export_failed')
                 issue = explain_error(error, exporting=True)
             return {'imported': imported, 'report': report, 'issue': issue,
                     'apple_report': apple_report, 'apple_issue': apple_issue}
@@ -335,6 +355,7 @@ class DesktopJob:
                                           paused=self.picker_open, emit=self.emit, **options)
                 self.emit('result', result)
             except Exception as error:
+                self.service.diagnostics.exception(error, stage='worker_failed')
                 self.emit('error', explain_error(error))
             finally:
                 self.events.put(('finished', None))
@@ -343,6 +364,7 @@ class DesktopJob:
         return True
 
     def cancel(self):
+        self.service.diagnostics.event('cancel_requested', cancelled=self.stage not in ('committing', 'exporting', 'result'))
         if self.stage not in ('committing', 'exporting', 'result'):
             self.cancelled.set()
 

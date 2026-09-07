@@ -1,38 +1,36 @@
 # 项目状态
 
-更新：2026-09-07。默认只读本页，再按 [维护索引](MAINTENANCE.md#task-map) 选择资料。学生操作见 [README](README.md)，实机验收记录见 [STUDENT_ACCEPTANCE](STUDENT_ACCEPTANCE.md)。
+更新：2026-09-07。默认只读本页，再按 [维护索引](MAINTENANCE.md#task-map) 选择资料。学生使用见 [README](README.md)，实机验收见 [STUDENT_ACCEPTANCE](STUDENT_ACCEPTANCE.md)。
 
-**2026-09-07 收尾：当日 3 个 bug 已全部处理并关闭；用户确认已给大家实测，全部 OK。** 证据见 [实测收尾记录](STUDENT_ACCEPTANCE.md#acceptance-20260907-closeout)。
+**rc11 新增自动执行记录和“导出排错日志”，保留 rc10 的累计课表修复。** 当日原有 3 个 bug 已由用户确认实测关闭；该反馈仍归属于 rc10，不能替代 rc11 新书签验收。
 
 <a id="baseline"></a>
 ## 当前基线
 
 | 对象 | 已确认的范围 |
 | --- | --- |
-| 程序源码基线 | rc10 累计修复与今日实测收尾已同步 GitHub main，源码收尾提交 [75d6ac1](https://github.com/lhwen686/shsmu-schedule-sync/commit/75d6ac1fa1acf7ee4f475536260ac71f1c6e220b) |
-| 应用 / 采集书签 | 本地修复候选 `desktop_service.py:APP_VERSION = 1.0.0-rc10`；采集版本仍为 `2026-09-07.9` |
-| 当前维护 | 2026-09-07 当日 [3 个 bug](VERIFICATION.md#verification-bugs-closed-20260907) 均已关闭；实测 PASS（用户确认）；修复源码分支 `codex/fix-mixed-calendar-details-20260907`，收尾前 HEAD `da0b58974e1a9a01ab15b10b415706f81bf82504`；源码已同步 GitHub main，见 [同步记录](VERIFICATION.md#verification-github-sync-20260907) |
-| Git 状态依据 | 2026-09-07 已回读 GitHub main 与提交 API；6 个提交从 rc7 快进到 `75d6ac1fa1acf7ee4f475536260ac71f1c6e220b`，随后仅补记同步状态 |
-| 发布证据 | [rc7 历史记录](VERIFICATION.md#verification-rc7)；同版本修订通过源码提交和产物哈希区分 |
+| 修改前公开源码 | [29faebb](https://github.com/lhwen686/shsmu-schedule-sync/commit/29faebbfc252121c6cbbf1832cb7e70ef2edc274)，含 rc10 修复与当日实测收尾 |
+| 本轮分支 | `codex/diagnostic-logs-rc11`，从干净公开副本建立；记录提交可用 `git log -1 --format=%H -- VERIFICATION.md` 定位 |
+| 应用 / 采集书签 | `diagnostics.py:APP_VERSION = 1.0.0-rc11`；`browser_ui.mjs` 修订 `2026-09-07.10` |
+| 当前维护 | [FEAT-20260907-01](VERIFICATION.md#diagnostics-rc11)：自动记录、脱敏结构重放、独立排错包及发布检查 |
+| 发布状态 | 本地 EXE、HTML、ZIP 及 SHA-256 文件已验证；公开发布待执行 |
 
-本仓库使用干净的公开历史。后续修复从实际核实的公开提交建立分支；个人同步目录单独保留配置和完整历史，经审查的源码按清单更新，不把私人历史或服务器配置合入本仓库。新克隆缺少个人数据与虚拟环境属于正常情况。
+本仓库使用干净公开历史。个人同步目录单独保留全部配置和历史，经审查的源码按清单更新，不把私人历史、个人课表或服务器配置合入本仓库。新克隆缺少个人数据与虚拟环境属于正常情况。
 
 ## 当前行为与交付
 
-学生入口为 `医学院课表助手.exe`，源码入口为 `desktop.py`。先开始接收，再在本人正常登录的浏览器中点击书签；文件生成后手机仍需手工导入。WakeUp CSV 和 Apple ICS 分别判断就绪、失败及手机确认。桌面不上传 WebCal，原 CLI 仍可选择自行配置的服务，本项目不提供托管多用户日历。
+学生入口为 `医学院课表助手.exe`，源码入口为 `desktop.py`。先开始接收，再由本人在平时登录教务的浏览器中点击书签。WakeUp CSV 和 Apple ICS 分别判断就绪、失败及手机确认；电脑生成文件后仍需手工导入手机。桌面不上传 WebCal，原 CLI 仍可使用本人独立配置的服务。
 
-已核实的桌面秋季预设为 `[2026-09-07, 2027-02-22)`，CLI 示例仍为 `[2026-09-07, 2027-01-18)`；这两个用途不同。实际末次课程与 WakeUp 周数来自采集数据。未知学期或显式自定义范围不套用当前预设，设置变化后需手动更新书签。
+rc11 默认在所选数据目录的 `local/diagnostics` 保留最近 30 天、总量最多 50 MB 的执行记录。遇到问题可选择本次或历史操作，导出一个 `shsmu-support-v1` ZIP。包内有中文摘要、阶段时间线、异常代码位置和必要的脱敏输入/处理前状态；日志写入失败不改变课表提交，当前记录尽力从内存补救导出。材料仍含日期与节次，仅由同学手动发给维护者。
 
-学生下载入口见 [README](README.md)。已在线核对的公开下载包仍是 rc7；rc8、rc9 和 rc10 的累计修复源码已同步 GitHub main，rc10 EXE / ZIP 仍为本地包，本次未更新 Release 附件。本次兼容修复不改采集器，原有完整 JSON 可直接选择处理，不需要为此重新安装书签。
+升级后按已有引导手动替换一次书签；网页显示 `2026-09-07.10`。采集格式仍为 `shsmu-capture-v1`，新增可选浏览器诊断元数据，不参与内容哈希、UID 和变更判断。旧 JSON 继续可用，排错包会注明缺少浏览器记录。浏览器无法下载时可复制网页排错信息并粘贴进导出窗口。
 
-部分同日详情响应夹带其他排课；只有精确排课 ID 能完整覆盖主事件、课程/日期/管理编号一致且节次无冲突时才筛选。原始响应完整保留，教师、内容、身份及 WakeUp 节次共同使用筛选结果。
+桌面秋季预设为 `[2026-09-07, 2027-02-22)`，CLI 示例仍为 `[2026-09-07, 2027-01-18)`；实际末次课程和 WakeUp 周数来自采集数据。未知学期或自定义范围不套用当前预设。合班分段和混合详情继续按明确排课关联，关联不完整或冲突时停止并保留旧版。
 
-合班课程通过原事件的精确详情请求、合班标识、课程/日期及完整节次关联；保留主课表实际起止时间和源排课 ID。共用整段详情的分段事件按已覆盖的主排课节数分配节次及教师内容；不把共用详情 ID 当作每段课的独立身份。不完整或冲突的关联仍停止并保留旧版。
+## 验证与后续
 
-## 验证与下一步
+本轮 147 项 Python 检查、三组 JavaScript 检查、生成书签验证、开发机窗口检查及最终 EXE 包内自检通过；对象和限制见 [执行日志验证](VERIFICATION.md#diagnostics-rc11)。
 
-[本轮修复记录](VERIFICATION.md#bug-mixed-details-20260907)：改前 3 个合成复现用例失败；改后完整 124 项 Python 与三组 JavaScript 通过。用户视频显示 rc6 的排课 ID 错误，rc9 也可离线复现。所提供真实采集的 131 次课程全部生成 CSV / ICS，逐条核对主时间、源标识、教师、节次和周次；重复处理同一响应无误报、输出字节不变。维护者原有 128 次普通课程及此前 132 次合班课程与 rc9 标准化和 ICS 完全一致。最终 EXE 自检、包审计和哈希以该修复记录为准；源码同步见 [GitHub 记录](VERIFICATION.md#verification-github-sync-20260907)。历史 [rc9 修复](VERIFICATION.md#bug-combined-classes-20260907)、[rc8 修复](VERIFICATION.md#bug-json-handoff-20260907) 和 [rc7 发布](VERIFICATION.md#verification-rc7) 保留原对象与日期。
+新书签的学校短范围、完整范围、至少 10 条网页核对及独立重复采集均为 NOT RUN；各浏览器、手机、其他电脑与新手独立操作也不继承旧版本 PASS。具体待验和原因见 [rc11 验收表](STUDENT_ACCEPTANCE.md#acceptance-rc11)。
 
-当日 bug 的同学实测已获用户总体确认（PASS）；原有逐项记录与本次反馈的范围见 [STUDENT_ACCEPTANCE](STUDENT_ACCEPTANCE.md#acceptance-20260907-closeout)。
-
-下一步按 [修复流程](MAINTENANCE.md#fix-workflow) 记录具体问题、复现、回归和审查。恢复、回滚和发布检查均复用 [维护说明](MAINTENANCE.md)，不新增第二套任务记录。
+后续收到日志包，沿用 [修复流程](MAINTENANCE.md#fix-workflow) 登记、隔离复现、验证和审查。日志缺失或异常位置只能作为证据线索，不能自动判定根因。历史 [rc10 修复](VERIFICATION.md#bug-mixed-details-20260907)、[rc9 修复](VERIFICATION.md#bug-combined-classes-20260907) 及 [当日实测关闭](STUDENT_ACCEPTANCE.md#acceptance-20260907-closeout) 保留原版本归属。

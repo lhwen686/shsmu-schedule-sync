@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from urllib.parse import quote
 
-BROWSER_MODULES = ('browser_compat.mjs', 'browser_transport.mjs', 'browser_capture.mjs', 'browser_ui.mjs')
+BROWSER_MODULES = ('browser_compat.mjs', 'browser_transport.mjs', 'browser_capture.mjs', 'browser_diagnostics.mjs', 'browser_ui.mjs')
 
 
 def browser_check_script(resources):

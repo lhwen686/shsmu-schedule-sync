@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import {webcrypto} from 'node:crypto';
 import {collectSchedule} from './browser_capture.mjs';
+import {browserDiagnostic} from './browser_diagnostics.mjs';
 
 const config={semester:'2026-2027:1',start:'2026-09-07',end_exclusive:'2027-01-18'};
 const row={ID:12,Curriculum:'测试课',CurriculumID:99,CSID:100,XXKMID:null,MCSID:'11,12',
@@ -140,7 +141,9 @@ if(malformed||redirect||resume||emptyDetails) {
   assert.match(panels[0].textContent,/采集未完成/);
   if(resume) {
     assert.equal(diagnostic.responses.length,6);
-    assert.equal(diagnostic.failure.request.params.MCSID,'21,22');
+    const pseudonyms=diagnostic.failure.request.params.MCSID.split(',').map(Number);
+    assert.equal(pseudonyms[1]-pseudonyms[0],1);
+    assert.notEqual(pseudonyms[0],21);
     assert.equal(diagnostic.failure.request.attempt,3);
     const retry=panels[0].children.find(child=>child.textContent==='继续采集');
     assert(retry);
@@ -157,7 +160,11 @@ assert.equal(blobs.length,resume?2:1,panels[0]?.textContent);
 const downloaded=JSON.parse(await blobs[blobs.length-1].text());
 assert.equal(downloaded.format,'shsmu-capture-v1');
 assert.equal(downloaded.complete,true);
-assert.equal(downloaded.collector_revision,'2026-09-07.9');
+assert.equal(downloaded.collector_revision,'2026-09-07.10');
+assert(downloaded.diagnostics.request_log.length > 0);
+assert(downloaded.diagnostics.request_log.every(entry => typeof entry.recorded_at === 'string'));
+assert(downloaded.diagnostics.request_log.filter(entry => entry.state==='success').every(entry => entry.duration_ms >= 0));
+assert.equal(downloaded.diagnostics.download_observed,false);
 if(!options.blockDownload) {
   assert.match(panels[0].textContent,/JSON.*下载/);
   assert.match(panels[0].textContent,/文件已经下载/);
@@ -183,6 +190,15 @@ if(options.repeatDownload) {
 return downloaded;
 }
 let downloaded;
+const shared=browserDiagnostic({format:'shsmu-diagnostic-v1', responses:[{path:'/Home/GetCalendarTable',
+  params:{MCSID:'11,12',CSID:'100'}, response:[{...detail, ClassCode:'CLASS-A CLASS-B', Content:'<div>FIRST<br>SECOND</div>',
+    StudentName:'PRIVATE_STUDENT', Cookie:'PRIVATE_COOKIE', UnknownField:'PRIVATE_UNKNOWN'}]}]});
+assert(!JSON.stringify(shared).includes('测试教师'));
+assert(!JSON.stringify(shared).includes('PRIVATE_'));
+assert.equal(shared.responses[0].response[0].ClassCode.split(' ').length,2);
+assert.match(shared.responses[0].response[0].Content, /^<div>[^<]+<br>[^<]+<\/div>$/);
+assert.equal(shared.responses[0].params.MCSID.replace(/,/g,'|'),
+  shared.responses[0].response[0].CurriculumScheduleIDs.match(/\d+/g).join('|'));
 for(const contentType of ['application/json','text/html; charset=utf-8','text/plain','']) downloaded=await executeBookmark(contentType);
 await executeBookmark('text/html',true);
 await executeBookmark('application/json',false,false,false,false,false,true);

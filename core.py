@@ -204,11 +204,25 @@ def _combined_periods(items):
 
 
 def normalize_with_details(items):
-    items = [{'event': item['event'], 'details': _event_details(item['event'], item['details'])}
-             for item in items]
+    selected = []
+    for index, item in enumerate(items, 1):
+        try:
+            selected.append({'event': item['event'], 'details': _event_details(item['event'], item['details'])})
+        except Exception as error:
+            error.diagnostic_index = index
+            error.diagnostic_checks = item
+            raise
+    items = selected
     periods = _combined_periods(items)
-    return [(normalize_one(item['event'], item['details'], combined_periods=periods.get(index)), item['details'])
-            for index, item in enumerate(items)]
+    result = []
+    for index, item in enumerate(items):
+        try:
+            result.append((normalize_one(item['event'], item['details'], combined_periods=periods.get(index)), item['details']))
+        except Exception as error:
+            error.diagnostic_index = index + 1
+            error.diagnostic_checks = item
+            raise
+    return result
 
 
 def normalize_one(row, details, *, combined_periods=None):

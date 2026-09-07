@@ -1,6 +1,6 @@
 // Bundled with the capability check, transport and collector by prepare.py.
 export async function runBookmark(config) {
-  const revision = '2026-09-07.9';
+  const revision = '2026-09-07.10';
   if (location.origin !== 'https://jwstu.shsmu.edu.cn') {
     alert('请先在添加课表按钮的同一个浏览器中打开并正常登录 https://jwstu.shsmu.edu.cn/Home，再点击书签或收藏夹里的课表按钮。');
     return;
@@ -21,10 +21,15 @@ export async function runBookmark(config) {
   const checkpoint = new Map();
   const keyFor = (path, params) => path + JSON.stringify(Object.fromEntries(Object.entries(params).sort(([a],[b])=>a.localeCompare(b))));
   let checkpointAccount = '', started = 0, stage = '', trace = [], completed = null, downloadFailed = false;
+  let currentResponse = null, lastDiagnostic = null, truncated = false;
+  const browser = /Edg\//.test(window.navigator?.userAgent ?? '') ? 'Edge' : /Firefox\//.test(window.navigator?.userAgent ?? '') ? 'Firefox' : /Chrome\//.test(window.navigator?.userAgent ?? '') ? 'Chrome' : 'unknown';
+  const stageCode = () => stage.includes('教师详情') ? 'details' : stage.startsWith('读取 ') ? 'month' : stage.includes('账号') ? 'homepage' : 'collect';
+  const metadata = () => ({schema_version:1, browser, request_log:trace, truncated,
+    download_attempted:true, download_observed:false});
   const heading = `课表采集 ${revision} · ${config.semester}\n`;
   const status = message => { stage = message; panel.textContent = heading + message; };
   const read = createSchoolReader(location.origin, {observe:entry => {
-    trace.push(entry);
+    if (trace.length < 2000) trace.push(entry); else { truncated = true; trace[1999] = entry; }
     if (entry.state === 'retry')
       panel.textContent = heading + stage + '\n请求暂未完成，稍后进行第 ' + (entry.attempt + 1) + '/3 次尝试…';
   }});
@@ -55,6 +60,8 @@ export async function runBookmark(config) {
     completed = null;
     downloadFailed = false;
     trace = [];
+    truncated = false;
+    currentResponse = lastDiagnostic = null;
     try {
       await collectSchedule(config, {
         status,
@@ -81,8 +88,9 @@ export async function runBookmark(config) {
         },
         // Only schema-validated, scrubbed timetable responses are retained.
         onResponse:record => checkpoint.set(keyFor(record.path, record.params), record),
+        onResponseRead:record => { currentResponse = record; },
         saveCapture:async capture => {
-          completed = {...capture, collector_revision:revision, started_at:new Date(started).toISOString()};
+          completed = {...capture, collector_revision:revision, started_at:new Date(started).toISOString(), diagnostics:metadata()};
           try { download('shsmu-capture-', completed); } catch { downloadFailed = true; }
           checkpoint.clear();
           checkpointAccount = '';
@@ -100,13 +108,17 @@ export async function runBookmark(config) {
         home.textContent = '前往教务首页';
         home.style.cssText = 'display:block;margin-top:12px;color:#12636a;font-weight:bold';
         panel.append(home);
+        lastDiagnostic = browserDiagnostic({format:'shsmu-diagnostic-v1', collector_revision:revision,
+          config, complete:false, failure:{stage:'homepage',code}, observed_at:new Date().toISOString()});
         return;
       }
       const request = error?.request ?? null;
       const message = error?.code ? error.message : '课表响应未通过数据校验';
-      const diagnostic = {format:'shsmu-diagnostic-v1', collector_revision:revision,
+      const diagnostic = browserDiagnostic({format:'shsmu-diagnostic-v1', collector_revision:revision,
         origin:location.origin, config, complete:false, observed_at:new Date().toISOString(),
-        failure:{stage, code, request}, request_log:trace, responses:[...checkpoint.values()]};
+        failure:{stage:stageCode(), code, request}, request_log:trace, responses:[...checkpoint.values()],
+        current_response:currentResponse, diagnostics:metadata()});
+      lastDiagnostic = diagnostic;
       panel.textContent = heading + '采集未完成：' + message + '\n位置：' + stage +
         (request ? '\n接口：' + request.path + '（尝试 ' + request.attempt + ' 次）' : '') +
         '\n已读取 ' + checkpoint.size + ' 份课表响应；本地旧课表保留。';
@@ -132,6 +144,20 @@ export async function runBookmark(config) {
           catch { alert('下载未能发起，请保留本页并检查 浏览器下载提示后重试。'); }
         });
       }
+      button('复制排错信息', () => {
+        const report = lastDiagnostic ?? browserDiagnostic({format:'shsmu-browser-support-v1',
+          collector_revision:revision, config, complete:false, observed_at:new Date().toISOString(),
+          failure:downloadFailed ? {stage:'download',code:'DOWNLOAD_FAILED'} : null,
+          diagnostics:metadata(), responses:completed?.responses ?? [...checkpoint.values()]});
+        const text = JSON.stringify(report);
+        const area = document.createElement('textarea');
+        area.value = text; area.readOnly = true; area.style.cssText = 'display:block;width:100%;height:120px;margin-top:12px';
+        panel.append(area); area.select?.();
+        window.navigator?.clipboard?.writeText(text).catch(() => {});
+        const help = document.createElement('div');
+        help.textContent = '若未自动复制，请选中上方文本后复制。在助手“导出排错日志”中粘贴；含日期和节次，请仅发给维护者。';
+        panel.append(help);
+      });
       button('关闭提示', () => { checkpoint.clear(); completed = null; panel.remove(); });
     }
   }
