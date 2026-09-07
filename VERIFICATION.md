@@ -7,6 +7,7 @@
 
 | 要核对的事项 | 阅读位置 | 适用边界 |
 | --- | --- | --- |
+| GitHub 源码同步 | [2026-09-07 同步](#verification-github-sync-20260907) | 今日修复与实测收尾已推送 main 并回读确认；Release 附件未更新 |
 | 当日 bug 收尾与实测 | [2026-09-07 收尾](#verification-bugs-closed-20260907) | 当日 3 个 bug 已关闭；实测 PASS（用户确认） |
 | 混合排课详情响应 | [BUG-20260907-03](#bug-mixed-details-20260907) | 已关闭；rc10 修复、离线回放及用户当日实测确认 |
 | 合班及分段排课兼容 | [BUG-20260907-02](#bug-combined-classes-20260907) | 已关闭；rc9 修复由 rc10 保留，用户当日实测确认 |
@@ -40,6 +41,17 @@
 PASS、FAIL、NOT RUN 和不适用的含义以 MAINTENANCE 为准。原始个人课表、账号、凭证或私人配置不写入记录；敏感证据只在本人忽略目录保管，公开版本只写脱敏摘要。当前记录提交由 `git log -1 --format=%H -- VERIFICATION.md` 定位；后续存在更多记录时按问题编号查历史。
 
 ## 维护记录
+
+<a id="verification-github-sync-20260907"></a>
+## 2026-09-07：GitHub 源码同步
+
+用户授权“然后提交github”。从干净公开源码副本向 [GitHub main](https://github.com/lhwen686/shsmu-schedule-sync/tree/main) 快进提交，远端由 `8ffdaffd83d6bcd23c79bcf4a58dff8646718dce` 更新到 [75d6ac1](https://github.com/lhwen686/shsmu-schedule-sync/commit/75d6ac1fa1acf7ee4f475536260ac71f1c6e220b)；共 6 个提交，包含维护文档整理、今天的 3 项 bug 修复、补充回放记录和用户实测收尾确认。
+
+推送与回读 PASS：`git push --porcelain origin HEAD:refs/heads/main` 退出码 0；`git ls-remote origin refs/heads/main` 和 GitHub 提交 API 均回读到 `75d6ac1fa1acf7ee4f475536260ac71f1c6e220b`。本段记录该次已完成的源码推送，随后仅补记同步状态。
+
+范围检查 PASS：逐个核对这 6 个提交，文件树保持原有 53 个公开文件，累计修改限定为 21 个目标文件；检查 44 份变动文件内容，程序及资源与既有受验副本一致。CMD 的 Git 内容与基线相同并保持 CRLF；个人数据、配置及私人历史未进入推送。`git diff --check` 通过；本机证据为 `prepush-audit.json` 与 `publication.json`。
+
+本次没有程序改动，保留 rc10 已有 124 项 Python、三组 JavaScript 及用户实测反馈的原始归属；新应用测试、构建和代理现场验收为 NOT RUN（源码同步无需重跑）。本次未创建 Release 或修改下载附件，已在线核对的公开下载包仍为 rc7。
 
 <a id="verification-bugs-closed-20260907"></a>
 ## 2026-09-07：当日 bug 关闭与实测确认
