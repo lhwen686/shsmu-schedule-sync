@@ -1,30 +1,31 @@
 # SHSMU timetable synchronizer
 
-- Read README.md, PROJECT_STATUS.md and VERIFICATION.md before continuing.
-- Authenticated structured school responses are the source of truth. Do not invent endpoints, fields, semester boundaries or stable IDs.
-- Preserve normal human login in existing Chrome. Never read browser credentials or change Chrome, extensions or network settings.
-- The daily collector is a manually installed bookmark with sequential bounded same-origin GETs and one sanitized JSON download. Start 同步课表.cmd before clicking the bookmark.
-- Incomplete fetches must preserve the last complete version. Keep normalized snapshots, stable UIDs and field-level changes.
-- Keep personal data, machine configuration, credentials and evidence in ignored directories. Fresh clones intentionally have no personal history.
-- Live validation needs a short-range check before the full semester, at least 10 page cross-checks, and a repeat sync without false changes. Report synthetic tests separately.
-- Limit changes to the requested scope and keep dependencies small. Do not deploy or alter an existing server unless that server operation is authorized.
-- WebCal is optional and represents one private calendar per backend instance. Published service files are deployment references, not a hosted multi-user service.
+Read [PROJECT_STATUS.md](PROJECT_STATUS.md) for the current baseline, then use the [task map](MAINTENANCE.md#task-map) to select relevant modules and tests. README is for student instructions; VERIFICATION is an evidence index, not a mandatory full-history read. The user's current task limits take precedence; listed commands are not authorization to run them.
 
-- Run 检查项目.cmd or python -X utf8 check.py to discover all Python and JavaScript tests, including workflow, usability and WakeUp tests. Bookmark revision 2026-09-06.8 must be manually reinstalled after this update.
-- Preserve CRLF bytes in CMD repository blobs for ZIP downloads. Already downloaded files can be selected with 导入已下载课表.cmd or dragged onto 同步课表.cmd; never silently import older files at startup.
-- --new-term cannot switch accounts and must preserve history when the scope is unchanged. Optional WakeUp times live in ignored local/wakeup-slots.json and must match every actual event endpoint.
+## Maintenance
 
+- Keep changes scoped and dependencies small. Use the existing repair record, review and rollback workflow in [MAINTENANCE.md](MAINTENANCE.md#fix-workflow); do not introduce a second tracking system or a multi-agent framework.
+- Confirm the repository, branch, HEAD and existing changes before editing. Follow the source-of-truth boundary in [PROJECT_STATUS.md](PROJECT_STATUS.md#baseline). Never publish private repository history or overwrite unrelated uncommitted files.
+- Select checks by impact using [verification gates](MAINTENANCE.md#verification-gates). Distinguish PASS, FAIL and NOT RUN, including skipped checks. School acceptance requires a short range, full coverage, at least 10 page cross-checks and a repeat sync without false changes; synthetic tests and old acceptance do not prove a new release's live behavior.
+- Preserve CRLF bytes in CMD repository blobs and ZIP downloads. Keep the existing `*.cmd -text` attribute; do not globally normalize line endings.
 
-## Student desktop application
+## Data and browser invariants
 
-- The student entry is `desktop.py`, packaged by `build_desktop.py` as `医学院课表助手.exe`; the desktop UI uses `desktop_service.py` and does not upload to WebCal. Existing CLI upload behavior is preserved.
-- Desktop resource files and personal data have separate roots. Frozen resources are read-only; the default user data root is `%LOCALAPPDATA%/SHSMUScheduleAssistant`. Existing histories are reused only through explicit directory selection, never silently migrated or reset.
-- Call `import_capture_unlocked` / `export_current_unlocked` only while holding one `exclusive_sync` lock. Cancellation ends before commit; after commit begins, finish it and its export. Do not expose an old CSV as a successful new export.
-- Maintain truthful stage labels: browser collection, local save/export, and user-confirmed iPhone import are separate. The GUI cannot detect phone state or verify a bookmark merely because the user acknowledged its instructions.
-- Desktop tests run through `check.py`. The bundled `--self-test REPORT` uses isolated synthetic data; it is not school, phone, or clean-machine acceptance. Track candidate release gates in `STUDENT_ACCEPTANCE.md`.
+- Authenticated structured school responses are the source of truth. Never invent endpoints, fields, semester boundaries or stable event IDs. Prefer explicit source dates over recurrence reconstruction.
+- Reuse the user's existing normally logged-in browser; the maintainer uses existing Chrome. Never collect passwords, authentication headers, cookies, session storage or browser credentials, or automate browser/profile/extension changes. Do not change proxy, DNS, VPN, hosts, firewall or TLS validation.
+- Collection is a manually installed bookmark with sequential, bounded same-origin GETs and one sanitized JSON download. Start the receiver before clicking it. Browser-module changes require regenerating the installer and the user's manual bookmark replacement; daily use requires no Codex browser backend.
+- Incomplete collection, missing details or ambiguous identities must preserve the last complete version. Keep sanitized raw responses, normalized snapshots, field changes, stable UIDs, aliases, revisions and cancellation history.
+- `--new-term` cannot switch accounts. Each person needs an independent directory without another person's history or upload configuration. Same-scope imports and complete, explicitly permitted same-account/same-semester superset captures preserve history. Never silently import an old download.
+- Personal synchronization and evidence review use the existing personal data directory. Fresh clones/worktrees intentionally lack ignored data, configuration and environments; absence is not a school deletion and must not reset UID history.
+- Keep personal data, configuration, credentials and evidence in ignored directories. Public releases use an explicit allowlist and clean history; never copy private settings or raw student files into issues, commits, logs or releases.
 
-- The first-run student flow asks for the semester only. The verified 2026-27 autumn desktop range includes winter break through 2027-02-21, based on the published spring start of 2027-02-22. Do not infer another term or internship range from this one. Existing ranges change only after the semester action; explicit custom ranges remain unchanged.
-- A complete same-account, same-semester superset capture preserves UID aliases, revisions and cancellation history. Do not reset history when extending coverage. WakeUp week count and displayed last class date come from the currently captured courses, not the query cutoff; newly published courses need another sync.
+## Desktop invariants
 
-- WakeUp CSV and Apple ICS exports have independent readiness and phone confirmations. Apple readiness validates the committed snapshot and exact ICS bytes; it does not depend on WakeUp slots.
-- Without a committed timetable, reopening the desktop app resumes bookmark setup even when a previous acknowledgement exists. Acknowledging during the current session allows first collection; a saved complete timetable enables the update home. Do not reset stored acknowledgements or histories to implement this routing.
+- `desktop.py` uses `desktop_service.py` and never uploads to WebCal. Preserve optional CLI uploads; the reference backend stores one private calendar per instance and is not a hosted multi-user service.
+- Frozen resources are read-only; default data lives in `%LOCALAPPDATA%/SHSMUScheduleAssistant`. Reuse existing history only through explicit directory selection, without silent migration or reset.
+- Hold one `exclusive_sync` lock for `import_capture_unlocked` and `export_current_unlocked`. Cancellation stops before commit; once commit begins, finish saving and exporting. Never offer an old CSV as a successful new export.
+- WakeUp CSV and Apple ICS have independent readiness, errors and phone confirmations. ICS validates the committed snapshot and exact bytes, independently of WakeUp slots. Confirmations bind to the displayed format's file hash.
+- Browser collection, local export and user-confirmed phone import are separate stages. A bookmark acknowledgement is not proof of installation; preview and WebCal subscription do not prove Apple Mail attachment import.
+- Without a committed timetable, reopening resumes bookmark setup; acknowledgement permits first collection in the current session, and a complete saved timetable enables the update home. Preserve stored acknowledgements and history.
+- First-run setup asks for the semester, not a personal last-class date. Apply only verified term presets after explicit semester action; preserve custom/unknown ranges. Current dates belong in PROJECT_STATUS, not permanent rules.
+- WakeUp weeks and the displayed last class date come from captured courses; newly published courses require another capture. Validate every event endpoint against actual slot times; optional `local/wakeup-slots.json` follows `wakeup-slots.example.json`. Do not treat the default template as another person's verified timetable.

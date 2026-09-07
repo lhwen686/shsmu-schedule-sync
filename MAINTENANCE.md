@@ -1,165 +1,125 @@
-# 上海交通大学医学院课表同步
+# 维护说明
 
-从本人正常登录的本科教务系统读取结构化课表，生成 JSON、课程变更记录和 `.ics` 日历。采用现有 浏览器 中手动安装的书签采集，Python 接收下载文件；日常使用不需要 Codex、浏览器扩展或服务器。
+本文件保存维护流程和按需索引。学生操作见 [README](README.md)，当前版本见 [PROJECT_STATUS](PROJECT_STATUS.md)，历史证据见 [VERIFICATION](VERIFICATION.md)，实机待验见 [STUDENT_ACCEPTANCE](STUDENT_ACCEPTANCE.md)。命令只在本次任务授权允许时执行，不要求每次维护运行所有项目。
 
-适用于 `jwstu.shsmu.edu.cn` 的本科教务系统。当前实现已用一个账号完成真实整学期采集和重复同步；其他账号首次使用需要自行核对课程，其他学校需要另行适配。默认示例为 **2026–2027 学年第 1 学期**，首次使用请先确认学期范围。
+<a id="task-map"></a>
+## 按问题读取
 
-当前安装页为 **修正版 8**，增加下载恢复、明确的错误提示和其他使用者的入口修补；完整场景和恢复步骤见 [使用体验与恢复](USABILITY.md)。已安装书签需要手动替换网址。
+先确认当前仓库、HEAD 和未提交改动，再按下表读取；不通读所有历史。调查和旧体验记录中的“当前”“修正版”只表示当时状态。
 
-## 安装
+| 问题或改动 | 先读源码 | 对应检查或资料 |
+| --- | --- | --- |
+| 书签、请求、下载、浏览器兼容 | [prepare.py](prepare.py)、[browser_ui.mjs](browser_ui.mjs)、[browser_capture.mjs](browser_capture.mjs)、[browser_transport.mjs](browser_transport.mjs)、[browser_compat.mjs](browser_compat.mjs) | [test_capture.mjs](test_capture.mjs)、[test_transport.mjs](test_transport.mjs)、[test_browser_compat.mjs](test_browser_compat.mjs)；接口问题再读 [DISCOVERY](DISCOVERY.md) 历史观察 |
+| 来源、账号、范围、UID、提交及恢复 | [source.py](source.py)、[core.py](core.py)、[sync.py](sync.py) | [test_sync.py](test_sync.py)、[test_workflow.py](test_workflow.py)；涉及桌面调用时加相关桌面用例 |
+| 桌面引导、取消、独立导出及手机确认 | [desktop.py](desktop.py)、[desktop_service.py](desktop_service.py) | [test_desktop.py](test_desktop.py)；对应 [学生验收](STUDENT_ACCEPTANCE.md) 项目 |
+| WakeUp 作息、周次、CSV | [wakeup.py](wakeup.py) | [test_wakeup.py](test_wakeup.py)、相关 workflow / desktop 用例 |
+| CMD、安装错误、已下载文件恢复 | 相应 CMD、[sync.py](sync.py)、[.gitattributes](.gitattributes) | [test_usability.py](test_usability.py)、相关 workflow 用例；[USABILITY](USABILITY.md) 是历史修补说明 |
+| CLI WebCal、服务端 | [webcal.py](webcal.py)、[deploy/webcal_server.py](deploy/webcal_server.py) | [test_webcal.py](test_webcal.py)、[部署说明](deploy/README.md)；不因此调用真实服务 |
+| 构建、资源或分发 | [build_desktop.py](build_desktop.py)、[desktop_smoke.py](desktop_smoke.py)、[requirements-build.txt](requirements-build.txt) | 完整检查、包内自检、产物审查及适用的学生实机验收 |
+| 仅维护文档 | 本文件与相关文档章节 | 链接、事实归属、规则一致性、改动清单和保护文件哈希；不重跑程序矩阵 |
 
-1. 准备 Windows、Python 3.12+（`py` 启动器或 PATH 中可用的 `python`）和 浏览器。
-2. 下载本仓库 ZIP 并解压，或克隆到一个固定目录。每人使用独立目录。
-3. 双击 `setup.cmd`，等待依赖安装和书签页生成。
-4. 在 浏览器 中打开生成的 `chrome-bookmark.html`，把“同步医学院课表”按钮拖到书签栏。
+<a id="data-flow"></a>
+## 入口与数据流
 
-程序会创建 `.venv` 和 `config.local.json`，无需填写教务密码。不自动启动、关闭或重新配置 浏览器，也不更改扩展。
+正常浏览器登录 → 手工书签顺序读取月课表及逐事件详情 → 脱敏 JSON 下载 → `source.py` 校验 → `sync.py` 检查完整性与账号范围 → `core.py` 标准化及身份匹配 → 保存完整运行 → 更新当前指针 → 导出。
 
-安装失败会保留窗口并给出重试提示；依赖安装和书签生成都成功后才显示完成。现有 `.venv` 若因移动目录失效，按提示手动改名备份后重试，保留个人数据和配置。CMD 在仓库中保留 CRLF 换行，适用于 ZIP 下载及含中文、空格的本地路径。
+`data/runs/<run_id>/` 保存原始业务响应、快照、差异及日历；`data/current.json` 指向完整版本，`data/schedule.json` 和 `data/previous.json` 是当前及上一标准化版本。故障排查不修改这些文件制造课程变化。
 
-## 日常同步
+桌面入口由 `DesktopService` 在一次锁内处理等待、提交和输出。ICS 从完整快照生成；WakeUp 另需同次原始教师详情和作息校验。两种输出及手机确认独立，桌面不上传 WebCal。CLI 导入完成后可按本人配置上传，CSV 由独立入口导出。
 
-1. **先双击 `同步课表.cmd`，保持窗口打开。**
-2. 在现有 浏览器 正常打开 [教务首页](https://jwstu.shsmu.edu.cn/Home)，确认显示本人学号，再点击“同步医学院课表”书签。
-3. 保持学校页面打开，等待采集完成，将 JSON 保存到同步窗口显示的下载目录。Python 会自动处理并生成日历。
+学期预设及默认范围以 [当前状态](PROJECT_STATUS.md#baseline) 和配置来源为准；CLI 示例与桌面预设可以不同。学校修改字段或出现未核实的非空分支时停止并保留旧版，不从历史材料猜测新接口。
 
-请求顺序执行，至少间隔 1 秒；耗时随课程次数变化，已验证账号每次约 5 分钟。接收窗口最长等待 30 分钟。未配置 WebCal 时只生成本地文件。
+<a id="fix-workflow"></a>
+## 一次修复如何完成
 
-若 浏览器 使用自定义下载目录，在 `config.local.json` 添加 `downloads_dir`（例如 `D:/Downloads`），或运行：
+1. **登记与定界。** 在 VERIFICATION 的记录区追加一个问题编号，例如 `BUG-YYYYMMDD-01`；文档整理使用 `DOCS-YYYYMMDD-01`。记录症状、影响、基线提交和现有未提交改动。先检索这个编号及相关函数，确认问题没有已完成的修复。
+2. **保留复现。** 写清触发步骤、预期和实际结果、运行环境及数据类型。程序缺陷优先用最小合成数据在改前版本复现，保留失败用例名称和输出；无法复现或不适合自动化时明确说明，不宣称已证实根因。
+3. **限定改动。** 从已确认的公开源码提交建立 `codex/<问题简名>` 分支，只修改相关文件。个人同步目录的改前文档、文件哈希和未跟踪内容另行备份；不把私人历史或配置复制进公开源码，也不在两处分别重复修补业务逻辑。
+4. **回归与审查。** 修复后执行同一复现及相关既有用例，再按下表补检查。单独检查最终 diff：是否解决触发条件、保留账号/UID/历史/提交边界、两种导出与上传隔离、CMD 换行、隐私和范围；记录审查方式、结论和剩余问题。未做独立审查就标 NOT RUN，不以测试通过代替审查。
+5. **记录和提交。** 记录修复提交、测试证据和回滚依据。当前记录所在提交可用 `git log -1 --format=%H -- VERIFICATION.md` 定位，无需把尚未产生的提交哈希写回该提交。使用明确文件清单暂存，检查暂存 diff；不使用 `git add .` 收进无关变更。
+6. **区分交付阶段。** 本地修复、公开源码提交、软件包发布、学校/手机验收分别记录。公开推送、发布和服务器操作必须在用户授权范围内；未完成适用验收时保留待验，不宣称学生版完整验收通过。批准的源码更新只按文件清单回到个人目录，保留其全部数据和设置。
 
-```powershell
-.\.venv\Scripts\python.exe -X utf8 sync.py --downloads "你的下载目录"
-```
+最小记录字段见 [VERIFICATION 模板](VERIFICATION.md#record-template)。记录一个事实的位置保持唯一：长期规则在 AGENTS，流程在本文件，当前版本在 PROJECT_STATUS，修复证据在 VERIFICATION，设备验收在 STUDENT_ACCEPTANCE。
 
-配置支持 UTF-8 BOM、环境变量和 `~`；相对下载路径按配置文件所在目录解析。等待器识别新文件及同名覆盖，等文件大小和修改时间稳定后读取；收到失败诊断时提示查看 浏览器，继续等完整文件。
+<a id="verification-gates"></a>
+## 检查与完成标准
 
-如果已先下载文件或保存到了其他位置，关闭仍在等待的同步窗口，双击 **`导入已下载课表.cmd`** 选择 JSON，或将 JSON 拖到 **`同步课表.cmd`** 上。也可用原命令明确导入：
+| 改动范围 | 必须取得的证据 | 完成边界 |
+| --- | --- | --- |
+| 文档、注释及链接整理 | 最终 diff、文件与锚点链接、版本事实和保护文件哈希 | 不执行安装、构建或业务测试；不把历史 PASS 变成本轮 PASS |
+| 局部程序修复 | 改前复现、改后对应回归、影响路径的既有用例、diff 审查 | 不能复现或受环境限制的项目标 NOT RUN；界面改动补适用的实际窗口检查 |
+| 账号、UID、范围、完整性、提交或导出逻辑 | 相关单元用例、workflow / desktop 路径和完整 `check.py` | 学校数据流受影响时补短范围、完整采集、至少 10 条网页核对和一次独立重复同步；未运行实采只算本地修复 |
+| 采集器或浏览器资源 | 三组 JS 检查、重新生成安装页并检查实际生成书签、完整检查 | 用户手动替换书签；目标浏览器逐个进行短范围、全范围、10 条核对及重复同步，不能用同内核推定通过 |
+| EXE、依赖、资源或候选版发布 | 对应源码完整检查、最终 EXE 包内自检及哈希、资源/隐私审查 | 包内自检不等于无 Python 电脑、Windows 实际缩放、学校或手机通过；逐项填写 STUDENT_ACCEPTANCE |
+| WebCal 服务端或上传协议 | 本机临时服务回归、完整检查、授权后的实际服务校验与回滚依据 | 桌面仍不上传；模拟服务、已配置或已部署不等于真实订阅刷新已验收 |
 
-```powershell
-.\.venv\Scripts\python.exe -X utf8 sync.py --capture "采集文件完整路径.json"
-```
+PASS 必须注明对象、环境、时间、命令、退出码及证据；FAIL 保留错误和后续复查结果；NOT RUN 包括未执行、跳过、工具不可用或证据不足，并注明原因。无需执行的项目注明“不适用”及理由。记录实际执行/失败/跳过数量，不只抄“全部通过”横幅或安装元数据。
 
-处理同一文件会提示“已经处理”，不会当作新采集；旧于当前版本的文件会被拒绝。
+<a id="test-commands"></a>
+## 已有检查命令
 
-采集完成面板提供 **重新下载采集文件**，无需重新请求学校。关闭面板或刷新页面后保留结果清除。网页提示采集完成只代表读取完成并尝试下载，本地生成与上传结果以同步窗口为准。
-
-## 输出
-
-| 文件 | 用途 |
-| --- | --- |
-| `output/calendar.ics` | 日历文件，含课程及取消记录 |
-| `output/changes.txt`、`output/changes.json` | 最近一次新增、删除和字段变化 |
-| `data/schedule.json` | 标准化课表，含时间、地点、教师和稳定 UID |
-| `data/previous.json` | 上一完整版本 |
-| `data/runs/` | 历次清理后的原始响应、快照和输出 |
-| `data/current.json` | 当前完整版本索引 |
-| `output/wakeup.csv`、`output/wakeup导入说明.txt` | 独立导出的 WakeUp 手动导入文件及日期、作息设置说明 |
-
-课程时间采用学校返回的明确日期和 `Asia/Shanghai` 时区，不按单双周猜测。保留源标识；课程改时间、地点或教师时，能够匹配身份的事件沿用 UID 并增加修订序号。
-
-## 手机日历
-
-可以把 `output/calendar.ics` 导入支持 iCalendar 的日历软件。文件导入是一次性操作，反复导入时的更新和删除行为取决于客户端。
-
-需要持续订阅时，可以自行配置 HTTPS WebCal。仓库提供上传器、服务端和部署参考，详见 [deploy/README.md](deploy/README.md)。**本仓库不提供托管服务、共享订阅地址或上传密钥。** 每个使用者需要独立的日历存储和访问权限。
-
-配置后，每次本地同步成功会自动上传并回读校验；上传失败可双击 `仅上传日历.cmd` 重试。手机按自身订阅刷新机制更新，并非即时推送。学校采集仍需本人登录和点击书签，尚无无人值守采集。
-
-## iOS WakeUp 手动导入
-
-完成一次完整同步后，双击 **`导出 WakeUp 课表.cmd`**。程序从当前已提交快照和对应原始教师详情生成 `output/wakeup.csv`、`output/wakeup导入说明.txt`，无需再次打开学校网页，也不会上传文件。命令行入口：
-
-```powershell
-.\.venv\Scripts\python.exe -X utf8 wakeup.py
-```
-
-1. 将 `wakeup.csv` 保存到 iPhone 的“文件”App。
-2. 在 WakeUp 中选择 **导入课表 → Excel 导入 → 选取 CSV 文件**，导入到新课表。
-3. 按配套说明设置学期开始日期、学期周数、一天节数和上课时间；CSV 本身不携带这些设置。
-4. 核对首周、晚课和不连续周次。以后完成学校同步后，再点击独立导出入口，将新 CSV 手动导入到新课表，核对后自行移除旧课表。
-
-CSV 采用官方七列，每次实际课程一行，保留实际周次、教师和地点，不导出取消记录、授课内容及备注。原“同步课表.cmd”不会自动生成 CSV，WakeUp 也不会自动跟随 CSV 更新。重复导入的覆盖和删除行为尚未验证。
-
-当前支持的作息规则为：第 1–5 节从 08:00 起，第 6–14 节从 13:30 起，每节 40 分钟，相邻节次间隔 10 分钟。说明逐项区分原始课程已确认的起止边界与推算边界，这不是学校官方作息表。每次导出会检查所有实际课程起止时间；缺少详情、节次或周次冲突、时间不匹配时停止导出并保留旧 CSV，不强行套用其他校区或学期的作息。
-
-若本人作息不同，先新建 `local` 目录，将 `wakeup-slots.example.json` 复制为 `local/wakeup-slots.json`，按本人作息填写 1–14 节上课及下课时间。仍逐条核对实际课程端点；未被课程端点确认的时间标为“自定义”。课表变化而旧 CSV 尚在时，同步窗口会提醒重新导出。
-
-已有一个账号完成 iOS WakeUp 实机导入并反馈可正常使用，其他使用者仍需自行核对。格式与操作依据：[官方 CSV 教程](https://www.wakeup.fun/doc/import_from_csv.html)、[课表设置](https://www.wakeup.fun/doc/settings/schedule_settings.html)。
-
-## 学期和账号
-
-默认范围是 `2026-09-07` 至 `2027-01-18`（结束日期不包含），对应 `2026-2027:1`，示例依据见 `config.example.json` 的 `calendar_source`。
-
-下学期修改 `config.local.json` 中的 `semester`、`start`、`end_exclusive`，然后执行：
-
-```powershell
-.\.venv\Scripts\python.exe -X utf8 sync.py --prepare
-```
-
-使用新安装页替换 浏览器 中旧书签的网址，再运行 `同步课表.cmd --new-term` 并点击书签。每个学期最多 240 天，旧完整版本仍保留。书签不会自动随磁盘文件更新。
-
-每个账号使用独立项目目录；不要把别人的历史数据复制进自己的目录。程序检查账号摘要、学期和范围，发生变化时会停止，避免误报删除。
-
-`--new-term` 不能绕过账号检查；也不要复制他人的上传配置。同一学期和范围下重复使用该参数，仍保留已有 UID、历史标识和修订号。
-
-## 失败和恢复
-
-登录失效时，在原 浏览器 走学校正常登录流程，再从教务首页重新采集。临时请求失败会有限重试，部分失败可在同一页面短时间内点击“继续采集”；刷新页面后需重新开始。诊断 JSON 不可作为完整课表导入。
-
-不完整采集、异常字段、整个学期意外为空或身份匹配冲突，都不会替换最后完整版本。输出文件损坏时可从已提交快照恢复，不访问学校：
-
-```powershell
-.\.venv\Scripts\python.exe -X utf8 sync.py --repair
-```
-
-退出码：`0` 成功，`2` 数据或访问检查失败，`3` 需重新认证，`4` 上传未确认（本地版本已保留），`1` 本地异常，`130` 用户中断。
-
-## 数据保护
-
-登录由浏览器正常处理。采集器不读取或导出 Cookie、密码、会话存储，不记录认证请求；保存前去除教师电话、账号等非必要字段。
-
-`.gitignore` 排除 `data/`、`output/`、`local/`、虚拟环境和本机配置。课表下载文件、诊断文件、私人订阅链接和密钥也应仅留本机，提交 Issue 时不要附带这些个人文件。克隆仓库没有个人历史，不能把这种缺失当成学校删除了课程。
-
-默认也忽略放在源码目录的 `shsmu-capture-*.json` 和 `shsmu-diagnostic-*.json`；自行改名后的个人文件仍需自行保管。
-
-## 开发验证
-
-安装依赖并生成书签后运行（JavaScript 测试需要支持内置 Fetch 的 Node.js）：
+在**要验证的源码目录**执行，使用已经准备好的 Python 环境。统一入口是 `检查项目.cmd` 或：
 
 ```powershell
 .\.venv\Scripts\python.exe -X utf8 check.py
 ```
 
-模拟测试与真实验收分别记录在 [VERIFICATION.md](VERIFICATION.md)。接口说明见 [DISCOVERY.md](DISCOVERY.md)。仓库内测试数据为人工构造，不包含个人课表。
+[check.py](check.py) 调用 `unittest discover -s <源码目录> -p test_*.py -v`，随后顺序运行根目录的全部 `test_*.mjs`，任意一组失败返回非零。检查需要 Node.js；日常同步不依赖 Node.js。新克隆/工作树没有虚拟环境时，不据此宣称软件故障，也不未经授权安装依赖。
 
-## 2026-09-06 修复更新
+定向检查示例（模块按问题选择，不代替适用的完整检查）：
 
-已安装用户需刷新 `chrome-bookmark.html`，手动把旧书签网址替换为修正版 5。空教师详情会停止采集或导入并保留旧课表；已有详情中的空教师字段仍可正常处理。
+```powershell
+.\.venv\Scripts\python.exe -X utf8 -m unittest -v test_sync test_workflow
+.\.venv\Scripts\python.exe -X utf8 -m unittest -v test_desktop
+node test_capture.mjs
+node test_transport.mjs
+node test_browser_compat.mjs
+```
 
-课程类型更正沿用原 UID；课程编号变化会记录差异并增加修订号；WakeUp 允许快照保留历史源标识，同时严格核对本次原始记录。整月从有课变空，或删除至少 10 次且占原有效课程至少 25% 时，终端和差异文件会提示核对；完整有效的来源变化仍会提交。
+测试使用合成数据和临时目录；WebCal 测试会启动仅监听回环地址的临时服务，桌面测试会创建 Tk 组件，Windows 使用体验用例会在临时目录执行 CMD 并创建不带 pip 的临时环境。它们仍是会运行程序、写临时文件的测试，不能在只读审计时执行。非 Windows 会跳过 CMD 场景，不算该场景通过。
 
-双击 `检查项目.cmd` 可运行全部 Python 与 JavaScript 测试，包括实际 CLI 提交后再导出 WakeUp 的模拟流程。服务器管理员需另外更新后端文件，升级与回滚见部署说明。
+<a id="local-operations"></a>
+## 日常入口与恢复
 
+学生操作以 [README](README.md) 为准。维护原 CLI 时，首次安装入口是 `setup.cmd`；日常先启动 `同步课表.cmd`，再在正常登录的教务首页点击本人已安装书签。程序等待本次下载，不自动导入启动前的旧文件。
 
-## 学生桌面版的维护与构建
+| 情况 | 已有入口及边界 |
+| --- | --- |
+| 文件已下载或另存到其他目录 | `导入已下载课表.cmd` 选择完整 JSON，或拖到 `同步课表.cmd`；CLI 等待窗口应先关闭，桌面文件选择取消后继续等待 |
+| 配置或学期改变 | 明确核对账号、学期和范围后，用 `sync.py --prepare` 生成安装页并由本人替换书签；CLI 显式 `--new-term` 不能切换账号 |
+| 输出损坏 | `sync.py --repair` 从当前完整快照恢复标准化输出、ICS 和差异；会写文件，不会选择旧历史版本，也不恢复 WakeUp CSV |
+| WakeUp 文件需要更新 | `导出 WakeUp 课表.cmd` 或 `wakeup.py`；原 CLI 同步不自动导出 CSV。可选作息文件遵循示例，仍检查全部实际起止时间 |
+| 仅 CLI 上传失败 | 本地完整版本保留；明确需要重试本人已配置的 WebCal 时使用 `仅上传日历.cmd` / `sync.py --upload-only`，会访问真实服务 |
+| 桌面两种文件部分失败 | 用界面的重新生成入口；WakeUp 作息失败不阻挡有效 ICS，旧 CSV 不作为本次成功输出 |
+| 登录失效或学校返回异常 | 在既有浏览器正常登录，再采集；诊断文件不能充当完整课表，不改浏览器安全或网络设置迁就测试 |
 
-学生主入口是 `desktop.py`，内部使用 `desktop_service.py` 调用共用同步服务。开发运行：`.venv\Scripts\python.exe -X utf8 desktop.py --data-root "指定的独立验收目录"`。不提供参数时使用当前 Windows 用户的应用数据目录；只有主动选择原项目目录时才接续现有历史。
+CLI 退出码：0 成功；2 数据/访问检查失败；3 需重新认证；4 上传未确认、本地保留；1 本地异常；130 用户中断。重新处理同一下载不是新的学校采集；不完整采集不能当作停课或删除。
 
-桌面版从不调用 WebCal 上传，原 CLI 的默认上传行为保持。`import_capture_unlocked` 与 `export_current_unlocked` 必须由调用者持有一次 `exclusive_sync`；取消只在提交前生效，提交开始后完成保存及导出。生成书签时资源目录与写入目录分离，避免向 EXE 的临时解包目录存储个人数据。
+<a id="release"></a>
+## 构建与发布
 
-在 Windows 64 位 Python 3.12 环境安装 `requirements-build.txt`，运行 `python -X utf8 build_desktop.py`。构建建议使用独立虚拟环境。输出 `dist/医学院课表助手.exe`、`dist/使用说明.html` 和 `dist/SHA256SUMS.txt`；依赖与 Tcl/Tk、时区数据均随 EXE 打包。
+只在包含构建授权的任务中操作。开发窗口入口为 `desktop.py --data-root "独立验收目录"`；已有构建环境按 [requirements-build.txt](requirements-build.txt) 准备，构建命令为 `python -X utf8 build_desktop.py`。
 
-`检查项目.cmd` 包括桌面流程和 Tk 组件测试。EXE 的维护验收入口为 `医学院课表助手.exe --self-test "报告绝对路径.json"`，只用临时合成课表执行运行环境、导出、重复导入与 Tk 组件检查；它不访问学校、不操作手机，也不代表另一台无 Python 电脑已经实测。隐藏控制台程序须以报告状态及进程退出码共同判断。
+构建脚本只生成 `dist/医学院课表助手.exe`、独立 HTML 和 EXE 校验文件；版本目录、ZIP 和所有下载附件的校验记录需单独整理核对，不能假定构建命令已经生成完整 Release。保留旧交付，不覆盖已分发的同版本附件；确需同版本说明修订时另存产物并记录修订日期及新哈希。
 
-修改采集模块后运行 prepare 生成安装页，用户手工替换书签。GUI 接收到的旧版完整采集仍经同样的数据检查；按钮的手动确认与实际采集版本分开记录。更新 EXE 不重置个人数据；向同学分发软件时仅使用构建产物，不压缩本地个人数据目录。
+最终 EXE 的维护入口为 `医学院课表助手.exe --self-test "报告绝对路径.json"`。同时核对报告状态和进程退出码；它只用隔离合成数据，不能代替学校、手机、另一台电脑或真实浏览器验收。
 
+发布记录关联：源码提交、应用版本、采集书签版本、构建环境、EXE/HTML/ZIP/附件 SHA-256、测试对象、人工审查和未验项目。生成书签后核对其与当前模块对应；CMD 在工作区、Git blob 及 ZIP 中都必须保持原始 CRLF，保留 `.gitattributes` 中的 `*.cmd -text`。
 
-## 学期范围与个人结课日期
+公开内容只来自干净历史和明确白名单；审查 Git 文件列表、暂存内容和最终包，不依赖 `.gitignore` 作为唯一隐私检查。通用文档可同步，本机目录、服务器细节、凭证及个人证据留在忽略目录中。发布后的附件回下载校验属于线上操作，需要相应授权。
 
-学生引导不要求个人结课日期。`student_term_config` 只对已核实的 2026–2027 秋季范围提供校历预设，覆盖至下一学期前；未知学期或显式 `range_mode=custom` 不套用此预设。CLI 的原示例日期保持可用。校历更新必须先核对学校原始资料，再更改预设；不能靠某个月没课推断本学期结束。
+<a id="rollback"></a>
+## 安全回滚
 
-旧范围扩展后仍要手动更新书签并完整重新采集。导入只有在账号一致、学期一致、覆盖为原范围的超集且已显式确认时才沿用原历史进行匹配；日期缩小或更换学期保持原有新范围处理。新旧采集格式相同，不额外请求未知学校接口。
+改前保存目标文件原件、哈希、基线提交和已有工作区状态，包含未跟踪的目标文档。原件和个人证据仅留本机忽略目录；公开记录写脱敏结论和对应提交。
 
-WakeUp 的周数取本次有效课程的最大 `WeekNum`，开学日期继续以实际日期与教学周一致性校验。结果显示“本次已公布课程”而非保证未来不再补课的结课日；旧版导出清单需要重新生成后才作为新设置的结果提供。
+- 已提交的源码或文档：在适当分支用 `git revert <该次提交>` 形成可审查的反向提交；先检查后续改动和冲突，不重写已发布历史。
+- 个人目录中的未提交更新：只逐个恢复本次备份的明确文件，核对哈希；不使用整仓库 `reset --hard`、`git clean` 或批量删除处理当前混有历史改动的目录。
+- EXE：保留已核对的旧产物与哈希，先在独立数据副本验证旧程序能读取当前数据；兼容性未验时不能承诺直接降级安全。
+- 数据：不重置 `data/current.json`、UID、修订号或历史运行。`--repair` 只是输出恢复；数据损坏或需要回到旧数据版本时另行定位和授权，不用代码回滚代替数据恢复。
+- 服务器：仅在授权的服务端任务中按 [部署说明](deploy/README.md) 的备份和回滚边界操作，不连带修改其他服务。
 
-浏览器通用安装页保留旧文件名 `chrome-bookmark.html`，并非只供 Chrome 使用。Edge 的收藏夹栏、Chrome 的书签栏和 Firefox 的书签工具栏可按 Ctrl + Shift + B 显示；本版学校实采均待验，见 STUDENT_ACCEPTANCE.md。安装页做本地语法 / API 检查，实际书签不使用动态求值。收集请求仍按原来源和身份规则校验，不读取浏览器凭证。
+<a id="client"></a>
+## 客户端使用建议
+
+先检查会话实际权限与当前工作目录，不仅看配置文件。审计选择只读，实现限制到工作区；线上与发布权限按任务授权。模型和全局插件无须为本项目重配，普通修复使用适当推理强度和一次明确的差异审查即可。默认单代理，不安装框架；旧聊天和记忆只帮助定位证据，不替代源码、提交或验收记录。
