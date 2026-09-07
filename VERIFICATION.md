@@ -75,7 +75,7 @@ PASS、FAIL、NOT RUN 和不适用的含义以 MAINTENANCE 为准。原始个人
 | `SHSMU-Schedule-Assistant-1.0.0-rc11-Windows-x64.zip` | `9395e0b8d60c3b0905fa4130945095162fd909fbbf0c3ed2c40fcaf5ef5a3487` |
 | `SHA256SUMS.txt` | `d229fd3ec9b14143ddcb668e492b1e5dc00f7ea2f6940c97fae6cb81de9b7b3b` |
 
-包审查证据：`package-audit.json`。发布与回下载：待执行；旧 Release 保留。
+包审查证据：`package-audit.json`。**发布与回下载 PASS：** 源码提交 [b20abf6](https://github.com/lhwen686/shsmu-schedule-sync/commit/b20abf6e536ef388ca40dd4f78aefe421a275bf8) 已推送 `codex/diagnostic-logs-rc11` 和 main；2026-09-07 20:47（北京时间）发布 [v1.0.0-rc11 预发布](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc11)。`git ls-remote` 回读 main / tag 均指向该源码提交；GitHub 发布 API 回读为非草稿、预发布、四个附件。全部附件重新下载到独立目录，与本地逐字节及 SHA-256 一致，ZIP 成员再次核对通过；公开源码 ZIP 的 56 个文件与白名单一致，6 个 CMD 保留原始 CRLF。证据 `publication-rc11.json`。旧 Release 保留；本段随后作为文档补记提交，不改变已验收 EXE 或版本标签。
 
 学校新书签短范围、完整范围、至少 10 条网页核对和独立重复采集，各目标浏览器、iPhone、其他 Windows 电脑及两名新手均为 **NOT RUN**，需要本人正常登录、手动替换书签或相应设备。具体范围见 [rc11 学生验收](STUDENT_ACCEPTANCE.md#acceptance-rc11)。历史 rc10 的用户实测反馈不升级为本次 PASS。
 

@@ -13,7 +13,7 @@
 | 本轮分支 | `codex/diagnostic-logs-rc11`，从干净公开副本建立；记录提交可用 `git log -1 --format=%H -- VERIFICATION.md` 定位 |
 | 应用 / 采集书签 | `diagnostics.py:APP_VERSION = 1.0.0-rc11`；`browser_ui.mjs` 修订 `2026-09-07.10` |
 | 当前维护 | [FEAT-20260907-01](VERIFICATION.md#diagnostics-rc11)：自动记录、脱敏结构重放、独立排错包及发布检查 |
-| 发布状态 | 本地 EXE、HTML、ZIP 及 SHA-256 文件已验证；公开发布待执行 |
+| 发布状态 | [v1.0.0-rc11 预发布](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc11)已发布；源码 `b20abf6e536ef388ca40dd4f78aefe421a275bf8`；四个附件回下载逐字节及 SHA-256 核对 PASS，随后仅补记发布文档 |
 
 本仓库使用干净公开历史。个人同步目录单独保留全部配置和历史，经审查的源码按清单更新，不把私人历史、个人课表或服务器配置合入本仓库。新克隆缺少个人数据与虚拟环境属于正常情况。
 
