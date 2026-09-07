@@ -7,6 +7,7 @@
 
 | 要核对的事项 | 阅读位置 | 适用边界 |
 | --- | --- | --- |
+| 只下载到 JSON 的继续入口 | [BUG-20260907-01](#bug-json-handoff-20260907) | rc8 本地修复及合成验证；同学原文件与学校、手机未验 |
 | 本次维护文档整理 | [DOCS-20260907-01](#docs-maintenance-20260907) | 仅文档；应用与实机测试未运行 |
 | rc7 候选版检查和发布 | [rc7 记录](#verification-rc7) | 对应历史源码和产物，不等于当前实机验收 |
 | 首次启动 / 双导出 | [rc6 记录](#verification-rc6) | 本地与包内检查；手机另验 |
@@ -36,6 +37,37 @@
 PASS、FAIL、NOT RUN 和不适用的含义以 MAINTENANCE 为准。原始个人课表、账号、凭证或私人配置不写入记录；敏感证据只在本人忽略目录保管，公开版本只写脱敏摘要。当前记录提交由 `git log -1 --format=%H -- VERIFICATION.md` 定位；后续存在更多记录时按问题编号查历史。
 
 ## 维护记录
+
+<a id="bug-json-handoff-20260907"></a>
+## BUG-20260907-01：只下载到 JSON 后缺少继续入口
+
+| 字段 | 记录 |
+| --- | --- |
+| 日期与授权 | 2026-09-07；解决同学只得到采集 JSON、找不到 WakeUp / 日历文件的反馈；本地修复及验证 |
+| 基线 | 公开源码分支 `codex/maintenance-docs-20260907`，HEAD `a2fe2ebdacdb642ae46ab2f92d0cb59ee8827125`，工作区干净；程序基线为 rc7。个人目录已有修改与未跟踪文件，原件和哈希另行保存在忽略目录 |
+| 反馈边界 | 用户提供下载文件名截图，没有提供 JSON 内容、助手提示或同学所用版本；不能据此断定其采集完整或已证实具体导出失败原因 |
+| 复现 | 已确认书签但首次课表尚未提交，先在浏览器下载 JSON 再重开助手；预期可直接选择该文件并生成两个导出，实际重回书签引导且本页没有“文件已经下载”入口，只能绕到帮助或重新确认书签 |
+| 改前失败 | Windows 64 位，Python 3.12.6；`python -X utf8 -m unittest -v test_desktop.DesktopWidgetTests.test_reopened_setup_imports_existing_json_and_exposes_both_exports test_desktop.DesktopWidgetTests.test_setup_file_picker_cancel_keeps_setup_and_does_not_import`：2 FAIL，退出码 1，均为引导页找不到“文件已经下载”；隔离合成课表与真实 Tk 组件 |
+| 修复 | 首次书签引导页直接选择已有 JSON；首页、等待页、帮助、采集结束提示和学生说明明确 JSON → 助手 → CSV / ICS；复用既有导入服务，不改变账号、范围、UID、完整性、锁、提交、导出或上传逻辑。书签升至 `2026-09-07.9` 并重新生成安装页，需本人手动替换；旧完整 JSON 仍可直接导入 |
+| 定向回归 | 2026-09-07，改前相同命令：2 PASS、0 FAIL、0 SKIP，退出码 0；验证重开引导后选择原 JSON 能生成并定位两种文件，取消不写入课表或更改设置，原下载及书签确认不变 |
+| 完整回归 | 同日，现有 Python 3.12.6 运行环境及 Node v24.19.0，`python -X utf8 check.py`：111 Python PASS、0 FAIL、0 SKIP；3 组 JavaScript PASS，退出码 0；包含生成后的实际书签在合成环境执行，保留单个 JSON 下载及诊断边界 |
+| 开发机窗口 | PASS：按应用入口启用 DPI awareness，当前 Tk 约 192 DPI（200%），1801 × 1521 窗口；重开引导页无需滚动即可看到选文件入口，选择隔离合成 JSON 后结果页两种文件就绪；保留窗口截图。首次截图使用未启用 DPI awareness 的坐标而裁取不准，已改为应用同等设置和窗口句柄重新核对；不算其他系统缩放验收 |
+| 构建与包内自检 | Windows x64、Python 3.12.6、既有 PyInstaller 6.22.2 构建环境，`python -X utf8 build_desktop.py` 退出码 0；最终 EXE `--self-test` 退出码 0 / PASS，10 个检查项，普通用户、PATH 仅含 Windows System32、依赖在冻结包内、临时数据在包外。运行环境无 PyInstaller，探测后改用既有构建环境，没有安装依赖 |
+| 产物审查 | PASS：EXE 1655 个条目，6 个明确资源逐字节匹配源码，包内版本为 rc8；无 data / output / local / 虚拟环境 / 私人配置条目。ZIP 仅 EXE、使用说明、SHA256SUMS，逐文件字节与 CRC 验证通过，哈希见下表 |
+| 差异审查 | PASS：同一代理独立于测试另行重读最终程序 diff，核对修复触发路径、取消和导出独立性、单个 JSON 下载、只更新相关文件以及 CMD 未改；独立第二审查者 NOT RUN，未委派代理 |
+| 提交与交付 | 分支 `codex/fix-json-handoff-20260907`，本记录所在修复提交由 `git log -1 --format=%H -- VERIFICATION.md` 定位；应用 rc8 / 书签 `2026-09-07.9`。本地修复包已生成，未推送、未发布或回下载，公开 rc7 附件未修改 |
+| 回滚与保护 | 14 个目标文件在个人/公开目录的 28 份原件与哈希、个人目录原 Git 状态及旧构建产物均在本机忽略目录保留；仅按清单同步，核对 585 个个人数据/配置文件哈希不变，41 个非目标项目文件在同步前后不变；个人课表及设置不作迁移或重置。源码可反向提交，个人目录可按备份逐个恢复；数据降级兼容性和实际回滚演练 NOT RUN |
+| 实机未验 | 该同学的 JSON 内容及原导出错误、学校短/全范围采集、10 条网页核对、独立重复采集、各目标浏览器、手机导入、另一台电脑、100% / 125% / 150% 系统缩放及两名学生独立恢复操作均 NOT RUN；没有以新测试替代历史或实机验收 |
+
+| 本地候选产物 | 字节数 | SHA-256 |
+| --- | --- | --- |
+| 医学院课表助手.exe | 21836873 | `e070f73963cfcfc2128e2d250d9ef90337be7fd19ef70e919cc88b39f361b120` |
+| 使用说明.html | 4012844 | `8c0862b4bfa3c315eb00c60674e11acaff8c9749e42f8c959f569c9d28276f77` |
+| SHA256SUMS.txt | 178 | `c571972cd27200b11464ab0631c5549ec3cc6a92dc9eabb42f8de21ddf0e6eb1` |
+| SHSMU-Schedule-Assistant-1.0.0-rc8-Windows-x64.zip | 24505370 | `8b57c20613db622bced129babf7cd8232501b85972cabae4506a168cd93e2e44` |
+
+原始证据文件在维护者忽略目录保存：`before-repro.txt`、`after-repro.txt`、`full-check.txt`、`window-qa.json`、两张窗口截图、`build.txt`、`packaged-self-test.json`、`package-audit.json` 及保护文件核对报告。公开记录不含个人课表或本机路径。
+
 
 <a id="docs-maintenance-20260907"></a>
 ## DOCS-20260907-01：维护文档整理

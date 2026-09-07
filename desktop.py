@@ -259,8 +259,9 @@ class AssistantWindow:
             self.button('重新查看书签安装引导', lambda: self.show_setup(2))
         self.export_choices(self.service.ready_export(), self.service.ready_apple_export(),
                             allow_rebuild=current is not None)
-        self.label('已经先下载了课表？', 'Section.TLabel', (16, 10))
+        self.label('只下载到 JSON？选择它生成手机文件', 'Section.TLabel', (16, 10))
         self.button('文件已经下载', self.pick_capture)
+        self.label('选择浏览器下载的 shsmu-capture-…json，助手会检查并生成 wakeup.csv 和 calendar.ics。', 'Small.TLabel')
         self.label('两种文件都需要在手机手动导入，不会自动跟随电脑更新。', 'Small.TLabel', (18, 0))
 
     def show_setup(self, step):
@@ -279,6 +280,10 @@ class AssistantWindow:
         else:
             self.clear('首次准备 · 2 / 2', '给浏览器添加课表按钮',
                        '① 复制安装页地址。\n② 在平时登录教务的浏览器地址栏粘贴、回车。\n③ 按安装页图示，把绿色按钮拖到书签或收藏夹栏。')
+            self.label('已经下载到 JSON？从这里继续', 'Section.TLabel')
+            self.label('选择浏览器下载的 shsmu-capture-…json，助手会检查并生成 wakeup.csv 和 calendar.ics，无需重新采集。', 'Small.TLabel')
+            self.button('文件已经下载', self.pick_capture)
+            self.label('还没获取课表？继续添加浏览器按钮', 'Section.TLabel')
             self.button('复制安装页地址', lambda: self.copy_text(self.service.bookmark_path.as_uri()), primary=True)
             self.status_label()
             with Image.open(self.service.resources / 'assets/bookmark-install.png') as source:
@@ -340,6 +345,8 @@ class AssistantWindow:
             self.button('复制教务首页地址', lambda: self.copy_text(HOME_URL))
             self.label('点击书签后，保持学校页面和助手打开；实际采集进度请看教务网页。', 'Small.TLabel')
         self.picker_button = self.button('文件已经下载', self.pick_capture, enabled=self.job.stage == 'waiting')
+        if self.browser_collection:
+            self.label('浏览器只会下载 shsmu-capture-…json。若这里仍在等待，点“文件已经下载”选择它，继续生成 WakeUp 和苹果日历文件。', 'Small.TLabel')
         self.cancel_button = self.button('取消本次操作', self.cancel, enabled=self.job.stage not in ('committing', 'exporting'))
         self.button('查看处理详情', self.show_details)
         self.nav_buttons[1].configure(state='disabled')
@@ -539,8 +546,9 @@ class AssistantWindow:
 
     def show_help(self):
         self.clear('遇到问题时，从这里继续', '不用从头再来')
+        self.label('只有 JSON，没有 WakeUp 或日历文件？', 'Section.TLabel')
         self.button('文件已经下载', self.pick_capture)
-        self.label('选择完整课表文件。取消选择会继续原来的等待。', 'Small.TLabel')
+        self.label('选择浏览器下载的 shsmu-capture-…json，助手会检查并生成 wakeup.csv 和 calendar.ics。JSON 是中间文件，不能直接导入手机，也不要改扩展名。取消选择会继续原来的等待。', 'Small.TLabel')
         self.button('选择下载文件夹', self.pick_downloads)
         self.button('重新生成导入文件', lambda: self.start(export_only=True), enabled=not self.running)
         self.label('从已保存的完整课表重新生成 WakeUp 和苹果日历文件，无需重新采集。作息设置只影响 WakeUp。', 'Small.TLabel')
@@ -560,7 +568,7 @@ class AssistantWindow:
         self.job.picker_open.set()
         try:
             folder = capture_folder(self.service.config(), self.service.config_path)
-            selected = filedialog.askopenfilename(parent=self.window, title='选择从浏览器下载的完整课表',
+            selected = filedialog.askopenfilename(parent=self.window, title='选择已下载的课表 JSON，生成 WakeUp 和苹果日历文件',
                 initialdir=str(folder if folder.is_dir() else downloads_folder()),
                 filetypes=[('完整课表文件', 'shsmu-capture-*.json'), ('JSON 文件', '*.json')])
             if selected:

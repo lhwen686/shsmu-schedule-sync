@@ -66,6 +66,6 @@ export async function collectSchedule(config, io) {
   const capture={format:'shsmu-capture-v1',origin:'https://jwstu.shsmu.edu.cn',config,account_key,
     fetched_at:new Date().toISOString(),complete:true,responses};
   await io.saveCapture(capture);
-  io.status(`采集完成：${rows.length} 次课程；已发起课表文件下载。\n请查看 浏览器下载列表，然后回到课表助手（或本地同步窗口）查看处理结果。手机还需要手动导入。\n若未保存文件，可点击“重新下载采集文件”；无需重新采集。`);
+  io.status(`采集完成：${rows.length} 次课程；已发起课表 JSON 下载。\n浏览器下载的 shsmu-capture-…json 是中间文件，不能直接导入 WakeUp 或手机日历，也不要改扩展名。\n下一步：回到“医学院课表助手”。若尚未自动处理，点“文件已经下载”选择这个 JSON；首次引导页或“遇到问题”里也有此入口。\n处理完成后，在助手点“导出 WakeUp 文件”获取 wakeup.csv，或“导出苹果日历”获取 calendar.ics，再在手机手动导入。\n命令行版请回到本地同步窗口；已先下载时可用“导入已下载课表.cmd”。\n若下载列表里没有文件，可点击“重新下载采集文件”；无需重新采集。`);
   return capture;
 }

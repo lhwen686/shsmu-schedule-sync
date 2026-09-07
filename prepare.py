@@ -55,7 +55,7 @@ def build_bookmark(root, config, *, resources=None, desktop=False, output=None):
     page = f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>课表同步书签与收藏夹按钮</title>
 <style>body{{max-width:820px;margin:56px auto;padding:0 24px;font:17px/1.8 system-ui,sans-serif;color:#24363c;background:#f5f8f8}}main{{background:white;padding:32px;border-radius:18px}}h1{{font-size:30px;line-height:1.3}}a.bookmark{{display:inline-block;background:#125d63;color:white;border-radius:10px;padding:12px 24px;text-decoration:none;font-weight:600}}textarea{{box-sizing:border-box;width:100%;height:100px;font:12px monospace}}small{{color:#596b70}}code{{background:#edf2f3;padding:2px 6px}}</style>
 <main><h1>用你平时的浏览器同步课表</h1><p>学期 {html.escape(config['semester'])} · {config['start']} 至 {config['end_exclusive']}（结束日期不含）</p>
-<p><strong>2026-09-06 修正版 8 · 浏览器通用引导</strong> · 已安装过旧书签时，右键旧书签 → 编辑或修改，将网址替换为本页下方的完整内容。刷新本页后再复制。</p>
+<p><strong>2026-09-07 修正版 9 · JSON 下载后继续导出指引</strong> · 已安装过旧书签时，右键旧书签 → 编辑或修改，将网址替换为本页下方的完整内容。刷新本页后再复制。</p>
 <ol><li>在平时登录教务的浏览器中打开本页，将下方按钮拖到顶部的书签或收藏夹栏。<br><small>Edge 叫“收藏夹栏”，Chrome 叫“书签栏”，Firefox 叫“书签工具栏”；这三种浏览器可按 Ctrl + Shift + B 显示。请在同一个浏览器完成添加和学校登录。</small></li>
 <li>双击本地 <code>同步课表.cmd</code>，它会等待浏览器下载的课表。</li>
 <li>在这个浏览器的 <a href="https://jwstu.shsmu.edu.cn/Home" target="_blank" rel="noopener">教务首页</a>正常登录后，留在显示本人学号的首页，点击刚才保存的课表按钮。等待页面提示采集完成，本地窗口会自动生成结果。</li></ol>
@@ -97,8 +97,9 @@ svg{{width:100%;height:auto}}li{{margin:14px 0}}button{{font:inherit}}</style>
 <path d="M272 70 L259 77 L272 85" fill="none" stroke="#12645a" stroke-width="3"/>
 <text x="422" y="132" font-size="16" fill="#36584f">拖到这里</text></svg>
 <p class="hint"><b>添加后回到“医学院课表助手”，点击“我已添加课表按钮”。</b><br>助手收到课表后才能确认按钮是否正常工作。</p>
+<p class="hint"><b>点击书签后只下载到 JSON？还需回助手生成手机文件。</b><br>打开“医学院课表助手”，点“文件已经下载”，选择浏览器下载的 <code>shsmu-capture-…json</code>。检查通过后，点“导出 WakeUp 文件”获取 <code>wakeup.csv</code>，或“导出苹果日历”获取 <code>calendar.ics</code>，再在手机导入。无需重新采集，也不要把 JSON 改名为 CSV 或 ICS。旧版助手可从“遇到问题”找到选文件入口。</p>
 <details><summary>已有旧书签，或拖动不成功</summary><p>在顶部的书签或收藏夹栏右键旧课表按钮 → 编辑或修改 → 把“网址 / URL / 地址”替换为下面全部内容。Firefox 可右键书签 → 编辑书签。新建书签也可以使用这段网址。点击文本框即可全选，再按 Ctrl+C 复制。</p>
 <textarea readonly onclick="this.select()">{html.escape(bookmark)}</textarea></details>
 <details><summary>QQ、360、搜狗浏览器，或找不到下载文件</summary><p>这些浏览器需按具体版本实测，不能仅凭名称保证可用。请先看本页检查结果；如果处于“兼容 / IE 模式”，本人切回普通 / 极速模式后重新打开本页。不要在微信、QQ 聊天中的内嵌网页里添加。</p><p>在浏览器的下载列表查找课表；可在助手点“文件已经下载”选择文件，或“选择下载文件夹”。不需要修改浏览器设置。</p></details>
-<p><small>学期：{html.escape(config['semester'])} · 采集按钮版本：2026-09-06.8<br>
+<p><small>学期：{html.escape(config['semester'])} · 采集按钮版本：2026-09-07.9<br>
 本人在同一个浏览器正常登录；课表按钮只读取学校课表，不读取密码、Cookie 或会话存储。Edge、Firefox 已加入通用流程，学校实采待验证。</small></p></main></html>'''

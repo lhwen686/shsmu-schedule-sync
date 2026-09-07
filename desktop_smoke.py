@@ -49,6 +49,7 @@ def self_test(report_path):
             window.update_idletasks()
             assert shown('给浏览器添加课表按钮')
             assert not shown('每次更新，只走这条流程')
+            assert shown('文件已经下载')
             ui.dispose()
             window, ui = None, None
             row = {'ID': 12, 'Curriculum': '运行验证课程', 'CurriculumID': 99,
@@ -111,6 +112,7 @@ def self_test(report_path):
             ui.dispose()
             window, ui = None, None
             report.update(status='PASS', checks=['bundled resources', 'first-run and interrupted onboarding startup',
+                'existing JSON recovery offered on reopened setup',
                 'completed capture opens update home', 'local import and WakeUp CSV',
                 'Apple ICS dates and content', 'repeat import preserves UID and ICS', 'bundled onboarding image',
                 'Tk result, settings and both iPhone guides', 'independent synthetic phone confirmation'],

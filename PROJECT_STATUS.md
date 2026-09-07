@@ -8,8 +8,8 @@
 | 对象 | 已确认的范围 |
 | --- | --- |
 | 程序功能基线 | `v1.0.0-rc7`，源码提交 `8ffdaffd83d6bcd23c79bcf4a58dff8646718dce` |
-| 应用 / 采集书签 | `desktop_service.py:APP_VERSION = 1.0.0-rc7`；采集版本 `2026-09-06.8` |
-| 当前维护 | `DOCS-20260907-01`：仅五类维护文档，分支 `codex/maintenance-docs-20260907`；文档提交以 Git 记录为准，程序版本不变 |
+| 应用 / 采集书签 | 本地修复候选 `desktop_service.py:APP_VERSION = 1.0.0-rc8`；采集版本 `2026-09-07.9` |
+| 当前维护 | [BUG-20260907-01](VERIFICATION.md#bug-json-handoff-20260907)：只下载到 JSON 后的继续入口；分支 `codex/fix-json-handoff-20260907`，从已核实的 `a2fe2ebdacdb642ae46ab2f92d0cb59ee8827125` 起步；修复提交以 Git 记录为准 |
 | Git 状态依据 | 2026-09-07 整理前本地 `main`、rc7 标签和缓存 `origin/main` 相同；本轮没有联网或推送，不据此断言远端最新版本 |
 | 发布证据 | [rc7 历史记录](VERIFICATION.md#verification-rc7)；同版本修订通过源码提交和产物哈希区分 |
 
@@ -21,11 +21,11 @@
 
 已核实的桌面秋季预设为 `[2026-09-07, 2027-02-22)`，CLI 示例仍为 `[2026-09-07, 2027-01-18)`；这两个用途不同。实际末次课程与 WakeUp 周数来自采集数据。未知学期或显式自定义范围不套用当前预设，设置变化后需手动更新书签。
 
-学生下载入口见 [README](README.md)。最近已记录的公开候选包是 rc7；本次只整理维护文档，没有改变软件、书签或发布附件。
+学生下载入口见 [README](README.md)。最近已记录的公开候选包是 rc7；rc8 EXE / ZIP 仅在本地生成，没有推送或更新公开附件。新书签提示需本人手动替换后生效；已下载的 JSON 可直接选择导入。
 
 ## 验证与下一步
 
-[历史 rc7 记录](VERIFICATION.md#verification-rc7) 有 109 项 Python、三组 JavaScript 检查、包内自检及开发机窗口核对；这些结果只适用于记录中的源码和产物。本轮文档检查见 [DOCS-20260907-01](VERIFICATION.md#docs-maintenance-20260907)。
+[本轮修复记录](VERIFICATION.md#bug-json-handoff-20260907)：改前 2 个复现用例失败，改后均通过；完整 111 项 Python、三组 JavaScript、最终 EXE 包内自检及开发机当前缩放窗口核对通过。没有收到该同学原 JSON，未将合成结果当作其文件验收。[历史 rc7 记录](VERIFICATION.md#verification-rc7) 和 [文档整理](VERIFICATION.md#docs-maintenance-20260907) 保留原对象与日期。
 
 当前候选版的学校实采、手机、另一台无 Python 电脑、Windows 实际缩放及学生独立操作仍有未验项目；以 [STUDENT_ACCEPTANCE](STUDENT_ACCEPTANCE.md) 为准。旧版 Chrome 实采和 WebCal 订阅不能替代本版浏览器及 Apple Mail 附件导入验收。
 

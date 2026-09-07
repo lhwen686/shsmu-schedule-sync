@@ -646,6 +646,55 @@ class DesktopWidgetTests(unittest.TestCase):
             reveal.assert_not_called()
         self.assertIn('重新生成导入文件', self.buttons())
 
+    def test_reopened_setup_imports_existing_json_and_exposes_both_exports(self):
+        import tkinter as tk
+        from desktop import AssistantWindow
+        self.ui.service.confirm_term()
+        self.ui.service.acknowledge_bookmark()
+        capture = write_capture(Path(self.temp.name), config=self.ui.service.config())
+        before = capture.read_bytes()
+        bookmark_ack = self.ui.service.state()['bookmark_ack']
+        window = tk.Tk()
+        window.withdraw()
+        reopened = AssistantWindow(window, Path(self.temp.name))
+        try:
+            self.assertIn('复制安装页地址', self.buttons(reopened))
+            self.assertIn('文件已经下载', self.buttons(reopened))
+            with patch('desktop.filedialog.askopenfilename', return_value=str(capture)), \
+                    patch('desktop_service.wait_capture', side_effect=AssertionError('must use selected JSON')):
+                self.buttons(reopened)['文件已经下载'].invoke()
+                deadline = time.monotonic() + 5
+                while reopened.running and time.monotonic() < deadline:
+                    window.update()
+                    time.sleep(0.02)
+            self.assertFalse(reopened.running)
+            self.assertIsNotNone(reopened.service.ready_export())
+            self.assertIsNotNone(reopened.service.ready_apple_export())
+            with patch('desktop.reveal_file') as reveal:
+                self.buttons(reopened)['导出 WakeUp 文件'].invoke()
+                self.buttons(reopened)['导出苹果日历'].invoke()
+                self.assertEqual([call.args[0] for call in reveal.call_args_list],
+                    [reopened.service.root / 'output/wakeup.csv', reopened.service.root / 'output/calendar.ics'])
+            self.assertEqual(capture.read_bytes(), before)
+            self.assertEqual(reopened.service.state()['bookmark_ack'], bookmark_ack)
+            reopened.show_home()
+            self.assertIn('获取我的课表', self.buttons(reopened))
+        finally:
+            reopened.dispose()
+
+    def test_setup_file_picker_cancel_keeps_setup_and_does_not_import(self):
+        self.ui.confirm_term()
+        before = self.ui.service.state()
+        self.assertIn('文件已经下载', self.buttons())
+        with patch('desktop.filedialog.askopenfilename', return_value=''):
+            self.buttons()['文件已经下载'].invoke()
+        self.assertFalse(self.ui.running)
+        self.assertFalse(self.ui.job.busy)
+        self.assertFalse(self.ui.job.picker_open.is_set())
+        self.assertEqual(self.ui.service.state(), before)
+        self.assertFalse((self.ui.service.root / 'data/current.json').exists())
+        self.assertIn('复制安装页地址', self.buttons())
+
     def test_partial_and_total_export_failure_show_per_format_actions(self):
         self.ui.service.run(capture=write_capture(Path(self.temp.name)))
         for fail_wakeup, fail_apple in ((True, False), (False, True), (True, True)):

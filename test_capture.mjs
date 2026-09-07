@@ -157,7 +157,13 @@ assert.equal(blobs.length,resume?2:1,panels[0]?.textContent);
 const downloaded=JSON.parse(await blobs[blobs.length-1].text());
 assert.equal(downloaded.format,'shsmu-capture-v1');
 assert.equal(downloaded.complete,true);
-assert.equal(downloaded.collector_revision,'2026-09-06.8');
+assert.equal(downloaded.collector_revision,'2026-09-07.9');
+if(!options.blockDownload) {
+  assert.match(panels[0].textContent,/JSON.*下载/);
+  assert.match(panels[0].textContent,/文件已经下载/);
+  assert.match(panels[0].textContent,/wakeup\.csv/);
+  assert.match(panels[0].textContent,/calendar\.ics/);
+}
 assert.equal(downloaded.responses.length,7);
 assert.match(downloaded.account_key,/^[a-f0-9]{64}$/);
 assert.equal(calls.filter(call=>call.path==='/Home').length,0,'identity must come from the normal visible homepage, with no extra Home request');

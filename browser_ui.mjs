@@ -1,6 +1,6 @@
 // Bundled with the capability check, transport and collector by prepare.py.
 export async function runBookmark(config) {
-  const revision = '2026-09-06.8';
+  const revision = '2026-09-07.9';
   if (location.origin !== 'https://jwstu.shsmu.edu.cn') {
     alert('请先在添加课表按钮的同一个浏览器中打开并正常登录 https://jwstu.shsmu.edu.cn/Home，再点击书签或收藏夹里的课表按钮。');
     return;
