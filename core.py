@@ -68,6 +68,58 @@ def _periods(value):
     return {int(v) for v in ids(value)}
 
 
+def _positive_id(value):
+    return type(value) is int and value > 0 or isinstance(value, str) and value.isdecimal() and int(value) > 0
+
+
+def _event_details(row, details):
+    """Select a fully covered direct schedule from an observed mixed response.
+
+    Raw response arrays stay in the capture bundle. Only these selected rows
+    contribute identities, teachers, content and WakeUp periods. Responses
+    without any direct match still use the explicit combined-class proof.
+    """
+    if not isinstance(row, dict) or not isinstance(details, list) or any(not isinstance(d, dict) for d in details):
+        raise DataError('课程或教学日历的响应结构改变。')
+    slots = set(ids(row.get('MCSID')))
+    linked = [(d, set(ids(d.get('CurriculumScheduleIDs')))) for d in details]
+    matching = [(d, source_slots) for d, source_slots in linked if slots.intersection(source_slots)]
+    if not matching or len(matching) == len(details):
+        return details
+    error = '混合教学日历无法按排课 ID 完整关联，或详情存在冲突；旧课表保留。'
+    if (not _positive_id(row.get('CSID')) or not _positive_id(row.get('CurriculumID'))
+            or type(row.get('CourseCount')) is not int or row['CourseCount'] != len(slots)):
+        raise DataError(error)
+    calendars, detail_ids = set(), {}
+    for d, source_slots in linked:
+        if (not source_slots or any(not _positive_id(d.get(k)) for k in
+                ('ID', 'DetailID', 'TeachingCalendarID', 'ScheduleManagerID', 'CurriculumID'))
+                or str(d['ScheduleManagerID']) != str(row['CSID'])
+                or str(d['CurriculumID']) != str(row['CurriculumID'])
+                or d.get('HeBanID') not in (None, '', 0, '0') or d.get('IsDel') is not False
+                or not d.get('ClassTime') or parse_time(d['ClassTime']).date() != parse_time(row.get('Start')).date()):
+            raise DataError(error)
+        periods, taught = _periods(d.get('PKCIndex')), _periods(d.get('KCIndex'))
+        if (len(periods) != len(source_slots) or not taught.issubset(periods)
+                or sorted(periods) != list(range(min(periods), max(periods) + 1))):
+            raise DataError(error)
+        calendars.add(str(d['TeachingCalendarID']))
+        signature = (str(d['ID']), frozenset(source_slots), frozenset(periods), frozenset(taught),
+                     *(clean(d.get(k)) for k in ('Teacher', 'Content', 'Bz', 'WeekNum')))
+        key = str(d['DetailID'])
+        if key in detail_ids and detail_ids[key] != signature:
+            raise DataError(error)
+        detail_ids[key] = signature
+    selected = [d for d, _ in matching]
+    covered = set().union(*(source_slots for _, source_slots in matching))
+    periods = set().union(*(_periods(d['PKCIndex']) for d in selected))
+    taught = set().union(*(_periods(d['KCIndex']) for d in selected))
+    if (len(calendars) != 1 or covered != slots or len(periods) != len(slots) or taught != periods
+            or sorted(periods) != list(range(min(periods), max(periods) + 1))):
+        raise DataError(error)
+    return selected
+
+
 def _combined_class(row, details):
     """Only the observed, explicitly merged cross-manager response may differ.
 
@@ -80,14 +132,12 @@ def _combined_class(row, details):
     if not any(slots and ids(d.get('CurriculumScheduleIDs'))
                and not slots.intersection(ids(d.get('CurriculumScheduleIDs'))) for d in details):
         return False
-    def positive(value):
-        return type(value) is int and value > 0 or isinstance(value, str) and value.isdecimal() and int(value) > 0
-    if (not positive(row.get('CSID')) or not positive(row.get('CurriculumID'))
+    if (not _positive_id(row.get('CSID')) or not _positive_id(row.get('CurriculumID'))
             or type(row.get('CourseCount')) is not int or row['CourseCount'] != len(slots)):
         raise DataError('教学日历无法对应到该课程的排课 ID。')
     signatures = set()
     for d in details:
-        if (any(not positive(d.get(k)) for k in ('HeBanID', 'ScheduleManagerID', 'TeachingCalendarID', 'ID', 'DetailID'))
+        if (any(not _positive_id(d.get(k)) for k in ('HeBanID', 'ScheduleManagerID', 'TeachingCalendarID', 'ID', 'DetailID'))
                 or str(d['ScheduleManagerID']) == str(row['CSID'])
                 or len(set(clean(d.get('ClassCode')).split())) < 2
                 or str(d.get('CurriculumID')) != str(row['CurriculumID'])
@@ -154,14 +204,15 @@ def _combined_periods(items):
 
 
 def normalize_with_details(items):
+    items = [{'event': item['event'], 'details': _event_details(item['event'], item['details'])}
+             for item in items]
     periods = _combined_periods(items)
     return [(normalize_one(item['event'], item['details'], combined_periods=periods.get(index)), item['details'])
             for index, item in enumerate(items)]
 
 
 def normalize_one(row, details, *, combined_periods=None):
-    if not isinstance(row, dict) or not isinstance(details, list) or any(not isinstance(d, dict) for d in details):
-        raise DataError("课程或教学日历的响应结构改变。")
+    details = _event_details(row, details)
     if not details:
         raise DataError("教学日历详情为空，无法确认采集完整；请重新采集，旧课表保留。")
     if row.get("AllDay"):

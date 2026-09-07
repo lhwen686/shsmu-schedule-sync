@@ -12,7 +12,7 @@ import sync
 from core import DataError, normalize
 from prepare import BROWSER_MODULES
 from source import ORIGIN, request_key
-from test_sync import NOW, LATER, SCOPE, combined_fixture, fixture
+from test_sync import NOW, LATER, SCOPE, combined_fixture, fixture, mixed_fixture
 from wakeup import export_current
 
 
@@ -61,6 +61,27 @@ class WorkflowTests(unittest.TestCase):
         return {name: (self.root / name).read_bytes() for name in
                 ('data/current.json', 'data/schedule.json', 'output/calendar.ics',
                  'output/changes.json', 'output/changes.txt')}
+
+    def test_mixed_details_cli_preserves_raw_repeat_and_failed_import(self):
+        values = mixed_fixture()
+        self.assertEqual(self.run_capture(values), 0)
+        export_current(self.root)
+        pointer = json.loads((self.root / 'data/current.json').read_text(encoding='utf-8'))
+        bundle = json.loads((self.root / 'data/runs' / pointer['run_id'] / 'capture.json').read_text(encoding='utf-8'))
+        self.assertEqual(bundle['items'], values)
+        csv_bytes = (self.root / 'output/wakeup.csv').read_bytes()
+        ics_bytes = (self.root / 'output/calendar.ics').read_bytes()
+        self.assertEqual(self.run_capture(values[::-1], LATER), 0)
+        export_current(self.root)
+        self.assertEqual((self.root / 'output/wakeup.csv').read_bytes(), csv_bytes)
+        self.assertEqual((self.root / 'output/calendar.ics').read_bytes(), ics_bytes)
+        before = self.committed_bytes()
+        values[0]['details'][1]['KCIndex'] = '|1|'
+        self.upload.reset_mock()
+        self.assertEqual(self.run_capture(values, '2026-09-07T12:00:00Z'), 2)
+        self.assertEqual(self.committed_bytes(), before)
+        self.assertEqual((self.root / 'output/wakeup.csv').read_bytes(), csv_bytes)
+        self.upload.assert_not_called()
 
     def test_combined_split_cli_repeat_and_failed_capture_preserve_committed_files(self):
         values = combined_fixture(split=True)

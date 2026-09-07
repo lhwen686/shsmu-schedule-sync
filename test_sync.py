@@ -51,9 +51,85 @@ def combined_fixture(split=False):
     return [value, other]
 
 
+def mixed_fixture():
+    """Exact requests also return another schedule's same-day calendar rows."""
+    values = []
+    for number, day, periods in ((1, '07', '|1||2|'), (2, '08', '|1||2||3|')):
+        value = fixture(number)
+        slots = '11,12' if number == 1 else '21,22,23'
+        value['event'].update(ID=int(slots.split(',')[-1]), MCSID=slots,
+            CourseCount=len(slots.split(',')), Start=f'2026-09-{day}T08:00:00',
+            End=f'2026-09-{day}T' + ('09:30:00' if number == 1 else '10:20:00'))
+        detail = value['details'][0]
+        detail.update(ScheduleManagerID=100, HeBanID=None,
+            CurriculumScheduleIDs=''.join(f'|{s}|' for s in slots.split(',')),
+            ClassTime=f'2026-09-{day}T00:00:00', PKCIndex=periods, KCIndex=periods,
+            WeekNum=1, Teacher=f'本班教师{number}', Content=f'本班内容{number}')
+        other = copy.deepcopy(detail)
+        other.update(ID=9000 + number, DetailID=8000 + number,
+            CurriculumScheduleIDs='|51||52||53|' if number == 1 else '|61||62|',
+            PKCIndex='|1||2||3|' if number == 1 else '|1||2|',
+            KCIndex='|1||2||3|' if number == 1 else '|1||2|',
+            Teacher='其他排课教师', Content='其他排课内容')
+        value['details'] = [other, detail] if number == 1 else [detail, other]
+        values.append(value)
+    return values
+
+
 class TimetableTests(unittest.TestCase):
     def baseline(self, items=None):
         return reconcile(normalized(items or [fixture()]), None, SCOPE, NOW)[0]
+
+    def test_mixed_details_select_exact_slots_without_mutating_raw(self):
+        items = mixed_fixture()
+        before = copy.deepcopy(items)
+        events = normalized(items)
+        self.assertEqual([e['teacher'] for e in events], ['本班教师1', '本班教师2'])
+        self.assertEqual([e['content'] for e in events], ['本班内容1', '本班内容2'])
+        self.assertEqual([e['source_ids']['detail_ids'] for e in events], [['1001'], ['1002']])
+        self.assertTrue(all(e['identity_basis'] == 'detail' for e in events))
+        self.assertEqual(items, before)
+        old = self.baseline(items)
+        for item in items:
+            item['details'].reverse()
+        current, diff = reconcile(normalized(items[::-1]), old, SCOPE, LATER)
+        self.assertEqual(diff['changes'], [])
+        self.assertEqual(export_ics(current), export_ics(old))
+
+    def test_mixed_details_preserve_all_matching_teachers_and_existing_uids(self):
+        items = mixed_fixture()
+        first = items[0]['details'][1]
+        first['KCIndex'] = '|1|'
+        second = copy.deepcopy(first)
+        second.update(DetailID=7001, KCIndex='|2|', Teacher='第二节教师')
+        items[0]['details'].append(second)
+        filtered = copy.deepcopy(items)
+        filtered[0]['details'].pop(0)
+        filtered[1]['details'].pop()
+        old = self.baseline(filtered)
+        current, diff = reconcile(normalized(items), old, SCOPE, LATER)
+        self.assertEqual(diff['changes'], [])
+        self.assertEqual(export_ics(current), export_ics(old))
+        self.assertEqual(set(current['events'][0]['teacher'].split('；')), {'本班教师1', '第二节教师'})
+
+    def test_mixed_details_reject_incomplete_or_conflicting_selection(self):
+        for index, field, value in [
+                (1, 'CurriculumScheduleIDs', '|11|'), (1, 'CurriculumScheduleIDs', '|11||99|'),
+                (1, 'KCIndex', '|1|'), (1, 'PKCIndex', '|1||3|'),
+                (1, 'IsDel', True), (1, 'ClassTime', '2026-09-08T00:00:00'),
+                (0, 'CurriculumScheduleIDs', None), (0, 'ScheduleManagerID', 999),
+                (0, 'CurriculumID', 999), (0, 'TeachingCalendarID', 999),
+                (0, 'HeBanID', 400), (0, 'ClassTime', '2026-09-08T00:00:00'),
+                (0, 'IsDel', True), (0, 'DetailID', 1001)]:
+            with self.subTest(index=index, field=field):
+                items = mixed_fixture()
+                items[0]['details'][index][field] = value
+                with self.assertRaises(DataError):
+                    normalized(items)
+        items = mixed_fixture()
+        items[0]['event']['CourseCount'] = 1
+        with self.assertRaises(DataError):
+            normalized(items)
 
     def test_combined_class_uses_main_identity_and_preserves_shared_source_ids(self):
         event = normalized(combined_fixture())[0]

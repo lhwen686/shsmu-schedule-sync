@@ -7,6 +7,7 @@
 
 | 要核对的事项 | 阅读位置 | 适用边界 |
 | --- | --- | --- |
+| 混合排课详情响应 | [BUG-20260907-03](#bug-mixed-details-20260907) | rc10 本地修复；131 次真实旧采集双导出，普通/合班旧课表对照；学校新实采与手机未验 |
 | 合班及分段排课兼容 | [BUG-20260907-02](#bug-combined-classes-20260907) | rc9 本地修复；已提供真实旧采集离线回放及旧数据对照，不代表新学校实采或手机验收 |
 | 只下载到 JSON 的继续入口 | [BUG-20260907-01](#bug-json-handoff-20260907) | rc8 本地修复及合成验证；同学原文件与学校、手机未验 |
 | 本次维护文档整理 | [DOCS-20260907-01](#docs-maintenance-20260907) | 仅文档；应用与实机测试未运行 |
@@ -38,6 +39,34 @@
 PASS、FAIL、NOT RUN 和不适用的含义以 MAINTENANCE 为准。原始个人课表、账号、凭证或私人配置不写入记录；敏感证据只在本人忽略目录保管，公开版本只写脱敏摘要。当前记录提交由 `git log -1 --format=%H -- VERIFICATION.md` 定位；后续存在更多记录时按问题编号查历史。
 
 ## 维护记录
+
+<a id="bug-mixed-details-20260907"></a>
+## BUG-20260907-03：同一详情响应夹带其他排课
+
+- 日期与授权：2026-09-07；用户提供视频及完整采集 JSON，要求查明并修复。本地修复、回归和候选包；未推送、发布或调用真实服务。
+- 基线：rc9，公开源码提交 `85b854de83a93698331c7610df4eebd4a4c87bb6`，工作区干净；分支 `codex/fix-mixed-calendar-details-20260907`。个人目录已有改动，10 个目标文件的两份原件、Git 状态和非目标哈希保存在忽略目录。
+- 复现：视频中 rc6 已读取 131 次详情，报“教学日历无法对应到该课程的排课 ID”。真实旧采集含 131 个主事件、137 次完整请求；两次详情响应分别夹带 2 条和 4 条其他排课记录。rc9 离线也报错，误入合班关联校验。文件完整，不需要删除历史或重新采集。
+- 改前失败：Windows x64 / Python 3.12.6，3 个新合成复现用例 ERROR，退出码 1；对应 `test_sync.TimetableTests.test_mixed_details_select_exact_slots_without_mutating_raw`、`test_wakeup.WakeUpTests.test_mixed_details_use_only_selected_periods_and_teachers`、`test_desktop.DesktopTests.test_mixed_details_both_exports_reopen_and_repeat_without_upload`。证据 `before-repro.txt`。
+- 修复：`core.py` 在混合响应中先按主排课 ID 选择详情；要求同课程、同日期、同管理编号、同教学日历、无合班标志或删除标记、主排课 ID 完整覆盖、节次数量和授课覆盖一致、详情身份不冲突。仅匹配部分或证据不足继续停止。原始完整响应不修改，标准化身份、教师、内容和 WakeUp 共同使用所选详情。没有直接匹配的响应继续走既有合班证据校验；浏览器、账号、范围、提交和上传逻辑未改变。
+- 定向回归：`python -X utf8 -m unittest -v test_sync test_wakeup test_workflow test_desktop`，98 PASS、0 FAIL、0 SKIP，退出码 0。新增完整筛选、全部匹配教师、UID 保留、顺序不变、缺失/冲突拒绝、CLI 原始记录保留与失败不提交、桌面双导出和重复导入检查。
+- 完整回归：同一源码目录、既有 Python 3.12.6 / Node 环境，`python -X utf8 check.py`，124 Python PASS、0 FAIL、0 SKIP，三组 JavaScript PASS，退出码 0，证据 `full-check.txt`。包内检查脚本的最终描述断言另由最终 EXE 自检执行。
+- 真实旧采集离线回放：131 个唯一 UID、131 个 ICS 事件、131 条 CSV 全部通过；逐条核对主时间、源 ID、教师、内容、节次及周次。两次混合响应各保留 4 条、2 条本人详情，6 条其他排课记录仅从导出选择中排除，原始采集完整保留。相同文件重选不修改提交指针；只更换采集时间外壳的同响应回放零变化，CSV / ICS 字节相同。另存交付文件使用原始采集时间；首次跨两个新目录比较 ICS 整体哈希因创建时间不同失败，改为逐事件检查 UID、内容及时间后通过，记录在 `delivery-report.json`，不属于应用失败。
+- 旧课表对照：维护者 128 次普通课程、此前 132 次合班课程的新旧标准化结果完全一致，与已有历史协调后零误报、ICS 字节相同；未写入原数据目录。证据 `real-replay-report.json`。
+- 构建与包内自检：既有 Windows x64 / Python 3.12.6 / PyInstaller 6.22.2，`python -X utf8 build_desktop.py` 退出码 0；最终 rc10 EXE `--self-test <独立报告路径>` 退出码 0 / PASS。普通用户、PATH 仅 Windows System32、冻结依赖位于包内，10 项原检查及合班分段/混合详情双导出通过；自检只使用隔离合成数据。
+- 产物审查：EXE 1655 条归档记录，6 项资源与源码逐字节一致；core、wakeup、desktop_service、desktop_smoke 的冻结代码与受验源码一致，无私人 data / output / local / 配置路径。ZIP 仅 EXE、独立 HTML、更新说明和校验文件，逐文件字节及 CRC 通过。项目依赖未改变；视频解码器仅装在忽略的诊断目录，首次下载超时后重试成功，不进入安装包。
+- 差异审查：同一代理在测试以外重新审查最终 core、四组测试、桌面版本和包内用例的 diff，核对完整性、身份、原始响应、两种导出及保护边界；未做独立第二人/子代理审查（NOT RUN）。最终范围、隐私、CMD CRLF 及保护哈希见本机 `final-audit.json`。
+- 交付与回滚：应用 `1.0.0-rc10`，书签仍为 `2026-09-07.9`；已有完整 JSON 可直接选择处理。只按清单同步本次源码和维护文档，保留 rc9 原包及构建前备份。修复提交由本记录的 Git 历史定位；可反向提交或按目标原件逐个恢复，不重置个人历史。实际降级/数据回滚演练 NOT RUN。
+- 尚未运行：学校短范围/全范围新实采、至少 10 条页面现场核对、独立重复实采、手机实际导入、另一台无 Python 电脑、系统其他缩放和学生独立操作；本地回放和旧视频不能替代新版实机验收。真实 WebCal 和线上发布不在本次范围。
+
+| rc10 本地产物 | 字节 | SHA-256 |
+| --- | ---: | --- |
+| 医学院课表助手.exe | 21846236 | `2124569698e8379f04de9735602e0ee06892b67adc1219e2a985e3d2cbf95a05` |
+| 使用说明.html | 4012844 | `8c0862b4bfa3c315eb00c60674e11acaff8c9749e42f8c959f569c9d28276f77` |
+| 本次更新说明.txt | 792 | `f22f51e7c8d735646ba52c53a26671eca9e6e2d7777823d192f5facd30ee23b2` |
+| SHA256SUMS.txt | 268 | `71b0c2bd5dca42ceb5bbb4fbb808b28ba43031b4f3e8c197c48dc68bd1eb569c` |
+| SHSMU-Schedule-Assistant-1.0.0-rc10-Windows-x64.zip | 24515842 | `d5bb024476824e44f5687273d092911646d3a3a427748509863403030175f637` |
+
+原始视频、采集、个人导出及回放报告仅留本机忽略目录，公开源码与安装包不含个人文件。
 
 <a id="bug-combined-classes-20260907"></a>
 ## BUG-20260907-02：合班详情及分段排课兼容

@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from core import DataError, normalize, reconcile
 from sync import publish
-from test_sync import NOW, LATER, SCOPE, combined_fixture, fixture
+from test_sync import NOW, LATER, SCOPE, combined_fixture, fixture, mixed_fixture
 from wakeup import HEADER, build_export, export_current
 
 
@@ -33,6 +33,12 @@ def rows(content):
 
 
 class WakeUpTests(unittest.TestCase):
+    def test_mixed_details_use_only_selected_periods_and_teachers(self):
+        content, _, report = build_export(*prepared(mixed_fixture()))
+        self.assertEqual(report['event_count'], 2)
+        self.assertEqual([r[2:5] for r in rows(content)[1:]],
+                         [['1', '2', '本班教师1'], ['1', '3', '本班教师2']])
+
     def test_combined_split_exports_only_each_main_event_period(self):
         content, _, report = build_export(*prepared(combined_fixture(split=True)))
         parsed = rows(content)

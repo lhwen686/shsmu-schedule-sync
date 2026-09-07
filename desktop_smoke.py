@@ -92,9 +92,34 @@ def self_test(report_path):
             assert load_current(root)['events'][0]['uid'] == uid
             assert (root / 'data/current.json').read_bytes() == pointer
             assert (root / 'output/calendar.ics').read_bytes() == calendar_bytes
+            # A same-day extra schedule must not enter either exported format.
+            import copy
+            mixed = json.loads(capture.read_text(encoding='utf-8'))
+            for record in mixed['responses']:
+                if record['path'] == '/Home/GetCurriculumTable' and record['response']['List']:
+                    record['response']['List'][0]['CourseCount'] = 2
+                elif record['path'] == '/Home/GetCalendarTable':
+                    direct = record['response'][0]
+                    direct.update(ScheduleManagerID=100, KCIndex='|1||2|')
+                    extra = copy.deepcopy(direct)
+                    extra.update(ID=9001, DetailID=8001, CurriculumScheduleIDs='|51||52||53|',
+                                 PKCIndex='|1||2||3|', KCIndex='|1||2||3|', Teacher='其他排课教师')
+                    record['response'].append(extra)
+            mixed_path = root / 'mixed-runtime-capture.json'
+            mixed_path.write_text(json.dumps(mixed), encoding='utf-8')
+            mixed_service = DesktopService(root / 'mixed-runtime')
+            mixed_service.initialize()
+            mixed_result = mixed_service.run(capture=mixed_path)
+            assert mixed_result['issue'] is None and mixed_result['apple_issue'] is None
+            assert mixed_result['report']['event_count'] == mixed_result['apple_report']['event_count'] == 1
+            mixed_csv = list(csv.reader(io.StringIO((mixed_service.root / 'output/wakeup.csv').read_text(encoding='utf-8-sig'))))
+            assert mixed_csv[1][2:5] == ['1', '2', '示例教师']
+            assert load_current(mixed_service.root)['events'][0]['teacher'] == '示例教师'
+            mixed_ics = icalendar.Calendar.from_ical((mixed_service.root / 'output/calendar.ics').read_bytes()).walk('VEVENT')
+            assert len(mixed_ics) == 1 and '其他排课教师' not in str(mixed_ics[0]['DESCRIPTION'])
+            report['mixed_details_exports'] = True
             # Keep a merged/split fixture in the frozen runtime acceptance too.
             # A second explicit data directory cannot switch the first account.
-            import copy
             shared = copy.deepcopy(detail)
             shared.update(ScheduleManagerID=200, HeBanID=400, ClassCode='DEMO-A DEMO-B',
                           CurriculumScheduleIDs='|51||52|', KCIndex='|1|', Teacher='第一节教师')
