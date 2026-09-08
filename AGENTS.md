@@ -22,7 +22,7 @@ Read [PROJECT_STATUS.md](PROJECT_STATUS.md) for the current baseline, then use t
 ## Desktop invariants
 
 - `desktop.py` uses `desktop_service.py` and never uploads to WebCal. Preserve optional CLI uploads; the reference backend stores one private calendar per instance and is not a hosted multi-user service.
-- Frozen resources are read-only; default data lives in `%LOCALAPPDATA%/SHSMUScheduleAssistant`. Reuse existing history only through explicit directory selection, without silent migration or reset.
+- Frozen resources are read-only; default data lives in `%LOCALAPPDATA%/SHSMUScheduleAssistant` on Windows and `~/Library/Application Support/SHSMUScheduleAssistant` on macOS. Startup logs and the desktop share this platform path. Reuse existing history only through explicit directory selection, without silent migration or reset.
 - Hold one `exclusive_sync` lock for `import_capture_unlocked` and `export_current_unlocked`. Cancellation stops before commit; once commit begins, finish saving and exporting. Never offer an old CSV as a successful new export.
 - WakeUp CSV and Apple ICS have independent readiness, errors and phone confirmations. ICS validates the committed snapshot and exact bytes, independently of WakeUp slots. Confirmations bind to the displayed format's file hash.
 - Browser collection, local export and user-confirmed phone import are separate stages. A bookmark acknowledgement is not proof of installation; preview and WebCal subscription do not prove Apple Mail attachment import.

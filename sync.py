@@ -246,17 +246,28 @@ def exclusive_sync(root):
 
 
 def wait_capture(folder, timeout=1800, *, progress=print, cancel=None, choose=None, paused=None, observe=None):
-    if not folder.is_dir():
-        raise SourceError("下载目录不存在；请修正 downloads_dir，或双击“导入已下载课表.cmd”选择已保存的 JSON。")
+    unreadable = '无法读取下载文件夹，请检查访问权限，或在助手点“文件已经下载”手动选择 JSON。'
+    try:
+        if not folder.is_dir():
+            raise SourceError("下载目录不存在；请修正 downloads_dir，或双击“导入已下载课表.cmd”选择已保存的 JSON。")
+    except OSError:
+        raise SourceError(unreadable) from None
     def scan(pattern):
         found = {}
-        for path in folder.glob(pattern):
+        # glob can silently hide PermissionError, making denial look like a timeout.
+        try:
+            paths = [path for path in folder.iterdir() if path.match(pattern)]
+        except OSError:
+            raise SourceError(unreadable) from None
+        for path in paths:
             try:
                 if path.is_file():
                     stat = path.stat()
                     found[path] = (stat.st_size, stat.st_mtime_ns)
-            except OSError:
+            except FileNotFoundError:
                 continue  # The browser or the user may rename/move a file during a poll.
+            except OSError:
+                raise SourceError(unreadable) from None
         return found
     before = scan('shsmu-capture-*.json')
     diagnostics = scan('shsmu-diagnostic-*.json')

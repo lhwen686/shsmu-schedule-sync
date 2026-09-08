@@ -4,6 +4,8 @@
 
 学生版面向 Windows 64 位电脑，不需要安装 Python、使用命令行或修改配置文件。使用平时登录教务的浏览器，适用于上海交通大学医学院本科教务系统 jwstu.shsmu.edu.cn。
 
+Mac 用户可按 [Mac 源码试用说明](MACOS.md) 启动；目前没有独立 Mac 安装包。
+
 **[点击下载 Windows 完整软件包](https://github.com/lhwen686/shsmu-schedule-sync/releases/download/v1.0.0-rc11/SHSMU-Schedule-Assistant-1.0.0-rc11-Windows-x64.zip)**。下载后右键选择“全部解压缩”，里面就是中文命名的软件和使用说明。单独下载软件或查看图文说明，请到 [下载页](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc11)。
 
 当前为 **1.0.0-rc11 候选版**，包含 rc10 的累计课表修复，并新增自动执行记录及“导出排错日志”。自动检查与实机验收分开记录，尚未完成的环节见 [学生版验收](STUDENT_ACCEPTANCE.md)。原命令行工具继续可用，安装与维护命令见 [维护说明](MAINTENANCE.md)。

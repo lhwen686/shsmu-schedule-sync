@@ -1,6 +1,6 @@
 """Bounded, local diagnostic records. Only de-identified values reach disk.
 
-This module has no application/dependency imports so startup failures can use it.
+Only standard-library platform helpers are imported, so startup failures can use it.
 Support material is evidence, never a timetable accepted by the import service.
 """
 from __future__ import annotations
@@ -20,6 +20,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from platform_support import default_data_root
 
 APP_VERSION = '1.0.0-rc11'
 MAX_DISK = 50 * 1024 * 1024
@@ -559,7 +560,7 @@ class DiagnosticRecorder:
 def install_startup_hook():
     """Only called by the executable/script entry, before optional imports."""
     import sys
-    root = Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData/Local') / 'SHSMUScheduleAssistant'
+    root = default_data_root()
     try:
         if '--data-root' in sys.argv:
             root = Path(sys.argv[sys.argv.index('--data-root') + 1])

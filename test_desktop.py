@@ -49,7 +49,7 @@ class DesktopTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='课表 desktop ')
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.service = DesktopService(self.root)
         self.service.initialize()
         self.service.save_settings(CONFIG)

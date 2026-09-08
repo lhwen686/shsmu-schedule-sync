@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 from urllib.parse import quote
+from platform_support import bookmark_shortcut, copy_shortcut
 
 BROWSER_MODULES = ('browser_compat.mjs', 'browser_transport.mjs', 'browser_capture.mjs', 'browser_diagnostics.mjs', 'browser_ui.mjs')
 
@@ -85,7 +86,7 @@ main{{max-width:760px;margin:auto;background:#fff;border-radius:20px;padding:36p
 svg{{width:100%;height:auto}}li{{margin:14px 0}}button{{font:inherit}}</style>
 <main><small>医学院课表助手 · 首次准备</small><h1>给你平时的浏览器添加课表按钮</h1>
 <p>请在<b>平时登录教务的同一个浏览器</b>打开本页。这一步只需做一次，以后登录教务首页，点课表按钮即可。</p>
-<ol><li>按 <b>Ctrl + Shift + B</b> 显示顶部的书签或收藏夹栏。<br><small>Edge：收藏夹栏 · Chrome：书签栏 · Firefox：书签工具栏。</small></li>
+<ol><li>按 <b>{bookmark_shortcut()}</b> 显示顶部的书签或收藏夹栏。<br><small>Edge：收藏夹栏 · Chrome：书签栏 · Firefox：书签工具栏。</small></li>
 <li>按住下面的绿色按钮，<b>拖到地址栏下方的这一栏</b>，再松开鼠标。不要直接点击绿色按钮。</li></ol>
 <p><a class="bookmark" href="{display}">同步医学院课表</a></p>
 <svg viewBox="0 0 680 155" role="img" aria-label="示意：把绿色按钮拖到地址栏下方的书签栏">
@@ -98,7 +99,7 @@ svg{{width:100%;height:auto}}li{{margin:14px 0}}button{{font:inherit}}</style>
 <text x="422" y="132" font-size="16" fill="#36584f">拖到这里</text></svg>
 <p class="hint"><b>添加后回到“医学院课表助手”，点击“我已添加课表按钮”。</b><br>助手收到课表后才能确认按钮是否正常工作。</p>
 <p class="hint"><b>点击书签后只下载到 JSON？还需回助手生成手机文件。</b><br>打开“医学院课表助手”，点“文件已经下载”，选择浏览器下载的 <code>shsmu-capture-…json</code>。检查通过后，点“导出 WakeUp 文件”获取 <code>wakeup.csv</code>，或“导出苹果日历”获取 <code>calendar.ics</code>，再在手机导入。无需重新采集，也不要把 JSON 改名为 CSV 或 ICS。旧版助手可从“遇到问题”找到选文件入口。</p>
-<details><summary>已有旧书签，或拖动不成功</summary><p>在顶部的书签或收藏夹栏右键旧课表按钮 → 编辑或修改 → 把“网址 / URL / 地址”替换为下面全部内容。Firefox 可右键书签 → 编辑书签。新建书签也可以使用这段网址。点击文本框即可全选，再按 Ctrl+C 复制。</p>
+<details><summary>已有旧书签，或拖动不成功</summary><p>在顶部的书签或收藏夹栏右键旧课表按钮 → 编辑或修改 → 把“网址 / URL / 地址”替换为下面全部内容。Firefox 可右键书签 → 编辑书签。新建书签也可以使用这段网址。点击文本框即可全选，再按 {copy_shortcut()} 复制。</p>
 <textarea readonly onclick="this.select()">{html.escape(bookmark)}</textarea></details>
 <details><summary>QQ、360、搜狗浏览器，或找不到下载文件</summary><p>这些浏览器需按具体版本实测，不能仅凭名称保证可用。请先看本页检查结果；如果处于“兼容 / IE 模式”，本人切回普通 / 极速模式后重新打开本页。不要在微信、QQ 聊天中的内嵌网页里添加。</p><p>在浏览器的下载列表查找课表；可在助手点“文件已经下载”选择文件，或“选择下载文件夹”。不需要修改浏览器设置。</p></details>
 <p><small>学期：{html.escape(config['semester'])} · 采集按钮版本：2026-09-07.9<br>

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import queue
 import threading
 from dataclasses import dataclass
@@ -17,14 +16,10 @@ from sync import (SyncCancelled, atomic_write, capture_folder, check_cancelled,
                   load_settings, validate_settings, wait_capture)
 from wakeup import export_current_unlocked, load_slot_times, slot_times, validate_slot_times
 from diagnostics import APP_VERSION, DiagnosticRecorder, recorded
+from platform_support import default_data_root
 
 RESOURCE_ROOT = Path(__file__).resolve().parent
 HOME_URL = 'https://jwstu.shsmu.edu.cn/Home'
-
-
-def default_data_root():
-    base = Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData/Local')
-    return base / 'SHSMUScheduleAssistant'
 
 
 def term_key(config):
@@ -80,6 +75,8 @@ def explain_error(error, *, exporting=False, apple=False):
         title, action = '还没有收到新课表', '文件已经下载？点击“文件已经下载”选择它；也可以检查下载文件夹后重新等待。'
     elif '下载目录不存在' in detail:
         title, action = '找不到下载文件夹', '点击“选择下载文件夹”，选择保存课表的位置。'
+    elif '无法读取下载文件夹' in detail:
+        title, action = '无法读取下载文件夹', '请检查该文件夹的访问权限，或点“文件已经下载”手动选择 JSON；也可选择其他下载文件夹。'
     elif '详情为空' in detail:
         title, action = '学校返回的课表详情不完整', '请正常打开教务首页后重新采集；原来的完整课表保留。'
     elif 'JSON' in detail or '采集文件' in detail:

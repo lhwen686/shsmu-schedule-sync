@@ -1,4 +1,4 @@
-"""Chinese Windows front end. Browser login and bookmark installation stay manual."""
+"""Chinese desktop front end. Browser login and bookmark installation stay manual."""
 from __future__ import annotations
 
 if __name__ == '__main__':
@@ -22,6 +22,7 @@ from core import DataError
 from desktop_service import (APP_VERSION, HOME_URL, DesktopJob, DesktopService,
                              default_data_root, explain_error, student_term_config, term_key)
 from prepare import downloads_folder
+from platform_support import bookmark_shortcut, reveal_command, scroll_units, ui_font_family
 from sync import atomic_write, capture_folder, json_bytes, load_current, load_settings
 from wakeup import load_slot_times, slot_times
 
@@ -61,7 +62,7 @@ def reveal_file(path):
     if not path.is_file():
         raise DataError('导入文件已经移动，请重新生成导入文件。')
     # Argument list, no shell, no CSV association (which might open a spreadsheet).
-    subprocess.Popen(['explorer.exe', '/select,', str(path)])
+    subprocess.Popen(reveal_command(path))
 
 
 class AssistantWindow:
@@ -142,32 +143,34 @@ class AssistantWindow:
     def _style(self):
         style = ttk.Style(self.window)
         style.theme_use('clam')
-        style.configure('.', font=('Microsoft YaHei UI', 11))
+        self.font_family = ui_font_family(tkfont.families(self.window),
+            tkfont.nametofont('TkDefaultFont', root=self.window).actual('family'))
+        style.configure('.', font=(self.font_family, 11))
         style.configure('TFrame', background=BG)
         style.configure('TLabel', background=BG, foreground=INK)
-        style.configure('Brand.TLabel', font=('Microsoft YaHei UI', 16, 'bold'))
+        style.configure('Brand.TLabel', font=(self.font_family, 16, 'bold'))
         style.configure('Muted.TLabel', foreground=MUTED)
         style.configure('Card.TFrame', background='white')
         style.configure('Body.TLabel', background='white', foreground=INK)
-        style.configure('Small.TLabel', background='white', foreground=MUTED, font=('Microsoft YaHei UI', 10))
-        style.configure('Title.TLabel', background='white', foreground=INK, font=('Microsoft YaHei UI', 23, 'bold'))
-        style.configure('Section.TLabel', background='white', foreground=INK, font=('Microsoft YaHei UI', 14, 'bold'))
+        style.configure('Small.TLabel', background='white', foreground=MUTED, font=(self.font_family, 10))
+        style.configure('Title.TLabel', background='white', foreground=INK, font=(self.font_family, 23, 'bold'))
+        style.configure('Section.TLabel', background='white', foreground=INK, font=(self.font_family, 14, 'bold'))
         style.configure('Notice.TFrame', background='#edf6f0')
-        style.configure('NoticeTitle.TLabel', background='#edf6f0', foreground=GREEN, font=('Microsoft YaHei UI', 14, 'bold'))
-        style.configure('NoticeBody.TLabel', background='#edf6f0', foreground=INK, font=('Microsoft YaHei UI', 10))
+        style.configure('NoticeTitle.TLabel', background='#edf6f0', foreground=GREEN, font=(self.font_family, 14, 'bold'))
+        style.configure('NoticeBody.TLabel', background='#edf6f0', foreground=INK, font=(self.font_family, 10))
         style.configure('TButton', padding=(14, 9), background='#e6eee9', foreground=INK)
-        style.configure('Primary.TButton', background=GREEN, foreground='white', padding=(20, 12), font=('Microsoft YaHei UI', 12, 'bold'))
+        style.configure('Primary.TButton', background=GREEN, foreground='white', padding=(20, 12), font=(self.font_family, 12, 'bold'))
         style.map('Primary.TButton', background=[('disabled', '#d8e4dc'), ('active', '#12563f')], foreground=[('disabled', MUTED)])
         style.configure('TEntry', padding=6)
         style.configure('TNotebook', background='white')
         style.configure('TNotebook.Tab', padding=(16, 8))
-        self.table_font = tkfont.Font(root=self.window, family='Microsoft YaHei UI', size=11)
+        self.table_font = tkfont.Font(root=self.window, family=self.font_family, size=11)
         style.configure('Treeview', font=self.table_font, rowheight=self.table_font.metrics('linespace') + 10)
 
     def _wheel(self, event):
         # Leave comboboxes, text fields and native dialogs their normal scroll behavior.
         if event.widget.winfo_toplevel() == self.window and event.widget.winfo_class() not in ('Text', 'TCombobox'):
-            self.canvas.yview_scroll(-int(event.delta / 120), 'units')
+            self.canvas.yview_scroll(scroll_units(event.delta), 'units')
 
     def _resize(self, event):
         self.canvas.itemconfigure(self.canvas_item, width=event.width)
@@ -317,7 +320,7 @@ class AssistantWindow:
 
             sketch.bind('<Configure>', fit_illustration)
             self.label('图中以 Chrome 为例；Edge、Firefox 的对应栏位见下方说明。', 'Small.TLabel')
-            self.label('Edge 叫“收藏夹栏”，Chrome 叫“书签栏”，Firefox 叫“书签工具栏”。按 Ctrl + Shift + B 显示。安装和登录请使用同一个浏览器。', 'Small.TLabel')
+            self.label(f'Edge 叫“收藏夹栏”，Chrome 叫“书签栏”，Firefox 叫“书签工具栏”。按 {bookmark_shortcut()} 显示。安装和登录请使用同一个浏览器。', 'Small.TLabel')
             self.button('我已添加课表按钮，进入助手', self.confirm_bookmark)
             self.label('此按钮只记录你的确认；实际采集成功后才算验证书签可用。', 'Small.TLabel')
 
@@ -619,7 +622,7 @@ class AssistantWindow:
         dialog = tk.Toplevel(self.window)
         dialog.title('处理详情')
         dialog.geometry('760x440')
-        area = tk.Text(dialog, wrap='word', font=('Microsoft YaHei UI', 10), padx=16, pady=12)
+        area = tk.Text(dialog, wrap='word', font=(self.font_family, 10), padx=16, pady=12)
         area.pack(fill='both', expand=True)
         area.insert('end', '\n\n'.join(self.details[-35:]) or '暂时没有处理记录。')
         area.configure(state='disabled')
@@ -651,8 +654,13 @@ class AssistantWindow:
         self.job.picker_open.set()
         try:
             folder = capture_folder(self.service.config(), self.service.config_path)
+            try:
+                initialdir = str(folder if folder.is_dir() else downloads_folder())
+            except OSError:
+                # A denied folder must not prevent choosing a readable JSON elsewhere.
+                initialdir = None
             selected = filedialog.askopenfilename(parent=self.window, title='选择已下载的课表 JSON，生成 WakeUp 和苹果日历文件',
-                initialdir=str(folder if folder.is_dir() else downloads_folder()),
+                initialdir=initialdir,
                 filetypes=[('完整课表文件', 'shsmu-capture-*.json'), ('JSON 文件', '*.json')])
             if selected:
                 self.service.diagnostics.event('file_picker_selected')
