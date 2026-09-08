@@ -27,7 +27,7 @@ class UsabilityTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
 
     def test_settings_accept_bom_and_relative_download_directory(self):
         path = self.root / 'config.local.json'

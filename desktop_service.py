@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import queue
 import threading
 from dataclasses import dataclass
@@ -17,14 +16,10 @@ from sync import (SyncCancelled, atomic_write, capture_folder, check_cancelled,
                   load_settings, validate_settings, wait_capture)
 from wakeup import export_current_unlocked, load_slot_times, slot_times, validate_slot_times
 from diagnostics import APP_VERSION, DiagnosticRecorder, recorded
+from platform_support import default_data_root
 
 RESOURCE_ROOT = Path(__file__).resolve().parent
 HOME_URL = 'https://jwstu.shsmu.edu.cn/Home'
-
-
-def default_data_root():
-    base = Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData/Local')
-    return base / 'SHSMUScheduleAssistant'
 
 
 def term_key(config):
@@ -80,6 +75,8 @@ def explain_error(error, *, exporting=False, apple=False):
         title, action = '还没有收到新课表', '文件已经下载？点击“文件已经下载”选择它；也可以检查下载文件夹后重新等待。'
     elif '下载目录不存在' in detail:
         title, action = '找不到下载文件夹', '点击“选择下载文件夹”，选择保存课表的位置。'
+    elif '无法读取下载文件夹' in detail:
+        title, action = '无法读取下载文件夹', '请检查该文件夹的访问权限，或点“文件已经下载”手动选择 JSON；也可选择其他下载文件夹。'
     elif '详情为空' in detail:
         title, action = '学校返回的课表详情不完整', '请正常打开教务首页后重新采集；原来的完整课表保留。'
     elif 'JSON' in detail or '采集文件' in detail:
@@ -92,11 +89,31 @@ def explain_error(error, *, exporting=False, apple=False):
 
 
 class DesktopService:
-    def __init__(self, root, resources=RESOURCE_ROOT):
-        self.root = Path(root).resolve()
+    def __init__(self, root, resources=RESOURCE_ROOT, *, recovery_issue=None, diagnostics_root=None):
+        self.root = Path(root).absolute() if recovery_issue else Path(root).resolve()
         self.resources = Path(resources)
+        self.recovery_issue = recovery_issue
+        self._root_identity = None
+        self.fallback_diagnostics_root = Path(diagnostics_root or default_data_root())
         self._bookmark_acknowledged = False
-        self.diagnostics = DiagnosticRecorder(self.root)
+        self.diagnostics = DiagnosticRecorder(diagnostics_root or self.root)
+
+    def require_available(self):
+        if not self.recovery_issue and self._root_identity is not None:
+            try:
+                current = self.root.stat()
+                if (current.st_dev, current.st_ino) != self._root_identity:
+                    raise OSError('data directory was replaced')
+            except OSError:
+                self.recovery_issue = '使用中的课表目录已断开或被替换。请连接原磁盘并重新选择原目录；没有新建另一份课表。'
+                self.diagnostics = DiagnosticRecorder(self.fallback_diagnostics_root,
+                    memory_only=self.fallback_diagnostics_root.absolute().is_relative_to(self.root))
+        if self.recovery_issue:
+            raise DataError(self.recovery_issue)
+
+    def _exclusive(self):
+        self.require_available()
+        return exclusive_sync(self.root)
 
     @property
     def config_path(self):
@@ -107,6 +124,7 @@ class DesktopService:
         return self.root / 'local/desktop-bookmark.html'
 
     def config(self):
+        self.require_available()
         return load_settings(self.config_path)
 
     def state(self):
@@ -117,13 +135,14 @@ class DesktopService:
             return {}
 
     def save_state(self, **values):
+        self.require_available()
         state = self.state()
         state.update(values)
         atomic_write(self.root / 'local/desktop-state.json', json_bytes(state))
 
     @recorded('startup')
     def initialize(self):
-        with exclusive_sync(self.root):
+        with self._exclusive():
             if (self.root / 'data/schedule.json').exists() and not (self.root / 'data/current.json').exists():
                 raise DataError('原数据目录缺少完整版本索引，请保留目录并恢复索引，不要新建历史。')
             if not self.config_path.exists():
@@ -135,11 +154,13 @@ class DesktopService:
             config = self.config()
             build_bookmark(self.root, config, resources=self.resources, desktop=True,
                            output=self.bookmark_path)
+            current = self.root.stat()
+            self._root_identity = (current.st_dev, current.st_ino)
             return config
 
     @recorded('term_settings')
     def confirm_term(self):
-        with exclusive_sync(self.root):
+        with self._exclusive():
             config = student_term_config(self.config())
             atomic_write(self.config_path, json_bytes(config))
             build_bookmark(self.root, config, resources=self.resources, desktop=True,
@@ -148,7 +169,7 @@ class DesktopService:
 
     @recorded('bookmark_confirmation')
     def acknowledge_bookmark(self):
-        with exclusive_sync(self.root):
+        with self._exclusive():
             self.save_state(bookmark_ack=self.bookmark_fingerprint())
         self._bookmark_acknowledged = True
 
@@ -164,12 +185,19 @@ class DesktopService:
             return 1
         if state.get('confirmed_term') != term_key(self.config()):
             return 1
-        if state.get('bookmark_ack') != self.bookmark_fingerprint():
-            return 2
+        current = load_current(self.root)
+        bookmark_ack = state.get('bookmark_ack')
+        if bookmark_ack != self.bookmark_fingerprint():
+            # Direct JSON recovery can finish before a bookmark is acknowledged.
+            # Keep the acknowledgement absent: importing is not installation.
+            # Recorded old fingerprints still require the collector upgrade guide.
+            if (bookmark_ack is not None or current is None
+                    or term_key(current['scope']) != term_key(self.config())):
+                return 2
         # A saved acknowledgement alone must not skip an unfinished first run.
         # Allow collection after confirming in this session; resume the guide on
         # reopening until a complete timetable has actually been saved.
-        if not self._bookmark_acknowledged and load_current(self.root) is None:
+        if not self._bookmark_acknowledged and current is None:
             return 2
         return 0
 
@@ -181,7 +209,7 @@ class DesktopService:
         validate_settings(config)
         if times is not None:
             validate_slot_times(times)
-        with exclusive_sync(self.root):
+        with self._exclusive():
             # Preserve unrelated CLI settings when editing the shared local config.
             try:
                 merged = self.config()
@@ -215,7 +243,7 @@ class DesktopService:
     def ready_export(self):
         """Validate the exact current files before allowing the user to send them."""
         try:
-            with exclusive_sync(self.root):
+            with self._exclusive():
                 if not self.state().get('export_ready'):
                     return None
                 current = load_current(self.root)
@@ -259,7 +287,7 @@ class DesktopService:
     def ready_apple_export(self):
         """Validate saved ICS before showing a file or accepting phone confirmation."""
         try:
-            with exclusive_sync(self.root):
+            with self._exclusive():
                 return self._apple_export_unlocked()
         except (OSError, ValueError, KeyError, TypeError, DataError) as error:
             self.diagnostics.exception(error, stage='apple_readiness_failed')
@@ -269,7 +297,7 @@ class DesktopService:
     def run(self, *, capture=None, export_only=False, cancel=None, choose=None, paused=None,
             emit=lambda stage, value: None):
         """One lock across waiting, import and export. Intentionally never uploads."""
-        with exclusive_sync(self.root):
+        with self._exclusive():
             config = self.config()
             self.diagnostics.attach('settings', config)
             check_cancelled(cancel)

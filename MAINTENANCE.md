@@ -12,6 +12,7 @@
 | 书签、请求、下载、浏览器兼容 | [prepare.py](prepare.py)、[browser_ui.mjs](browser_ui.mjs)、[browser_capture.mjs](browser_capture.mjs)、[browser_transport.mjs](browser_transport.mjs)、[browser_compat.mjs](browser_compat.mjs) | [test_capture.mjs](test_capture.mjs)、[test_transport.mjs](test_transport.mjs)、[test_browser_compat.mjs](test_browser_compat.mjs)；接口问题再读 [DISCOVERY](DISCOVERY.md) 历史观察 |
 | 来源、账号、范围、UID、提交及恢复 | [source.py](source.py)、[core.py](core.py)、[sync.py](sync.py) | [test_sync.py](test_sync.py)、[test_workflow.py](test_workflow.py)；涉及桌面调用时加相关桌面用例 |
 | 桌面引导、取消、独立导出及手机确认 | [desktop.py](desktop.py)、[desktop_service.py](desktop_service.py) | [test_desktop.py](test_desktop.py)；对应 [学生验收](STUDENT_ACCEPTANCE.md) 项目 |
+| Mac 数据目录、字体、滚动、Finder 和目录权限 | [platform_support.py](platform_support.py)、[Mac 源码说明](MACOS.md)及相应桌面入口 | [test_platform_support.py](test_platform_support.py)、相关 desktop 用例；原生窗口单独验收 |
 | 执行记录、排错包及隐私 | [diagnostics.py](diagnostics.py)、[browser_diagnostics.mjs](browser_diagnostics.mjs)；桌面及采集调用点 | [test_diagnostics.py](test_diagnostics.py)、相关 desktop / capture / transport 用例；诊断材料只在隔离目录重放 |
 | WakeUp 作息、周次、CSV | [wakeup.py](wakeup.py) | [test_wakeup.py](test_wakeup.py)、相关 workflow / desktop 用例 |
 | CMD、安装错误、已下载文件恢复 | 相应 CMD、[sync.py](sync.py)、[.gitattributes](.gitattributes) | [test_usability.py](test_usability.py)、相关 workflow 用例；[USABILITY](USABILITY.md) 是历史修补说明 |

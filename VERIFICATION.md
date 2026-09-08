@@ -1,5 +1,26 @@
 # 验证与修复记录
 
+<a id="release-rc12"></a>
+## RELEASE-20260909-RC12：Windows 与 Mac 同步分发
+
+症状：Mac 修订 5 已包含 `.12`，此前交付的 Windows 修订 3 仍内置 `.10`；更新应用也不会自动替换浏览器保存的旧书签。
+用户授权完整同步后上传 GitHub。基线 HEAD `9122ba7f7ed30bcf6627a5162e993c51eedb2b1c`，保留原有未提交修复，按明确文件清单整合 Safari、采集面板和 Mac 包装修复。
+
+版本：两端统一 `1.0.0-rc12`；Mac 修订 6、构建号 `12.0`；浏览器模块保持 `2026-09-08.12`，本轮不改变采集范围、请求、UID 或导出协议。
+包内自检读取实际生成的安装页，校验全部浏览器模块、`.12` 标识及书签完整地址。合包必须匹配两端全部源码哈希和应用版本。
+新增工作流只在 `codex/release-rc12` 的受授权推送触发，两端通过后合包校验并创建新的 rc12 预发布；不覆盖旧版附件。发布 job 单独取得 contents:write，构建 job 只读且不保留 checkout 凭据。
+
+本机 Python 3.12.14 完整检查退出码 0：187 项中 186 通过、1 项 Windows CMD 跳过；三组 JavaScript 通过。源码自检退出码 0，实际生成的 `.12` 安装页包含全部浏览器模块。
+本机新 Mac APP 已通过隔离冻结程序自检（PATH 无 Python、依赖位于包内），独立 ZIP 在中文及空格路径重新解压后，严格深度签名结构检查和冻结程序自检再次通过。生成书签长度 54857，SHA-256 `01b838f324f0ca6999f56f729ab4f5ffa1ed2ce9b2ad215d503adaf8a3d211fb`。
+发布前 27 项源码/测试/说明/工作流白名单检查通过；990 个个人及旧交付文件未变，6 个 CMD 的工作区和 Git blob 均保持 CRLF，说明配图与既有公开版本相同。远端树与已审查的本机暂存内容逐字节一致。
+首次云端运行 `34256671110` 在 setup-python 阶段失败：官方清单的 Python 3.12.14 仅有 Linux/RHEL 预编译包，Windows 与 Mac 均未进入项目检查或发布。根据官方 versions-manifest 核对，云端构建固定改为两端均提供的 Python 3.12.10；本机 3.12.14 结果保留原归属。
+发布前用隔离 checkout 复现 Windows 的换行转换；两次 Windows EXE 组件回读均确认 requirements、config、spec 与 HTML 共 5 个输入因换行而与本机不同。仅关闭 autocrlf 仍会让 text=auto 使用平台默认 eol，故发布工作流对临时 runner 的 Git 子进程同时指定 core.autocrlf=false 和 core.eol=lf；保留仓库 `.gitattributes` 和 CMD 的 -text 原始 CRLF，不改变用户电脑的 Git 设置。
+云端 Mac/Tk 8.6 检查在原生窗口用例停滞，首次 Windows 源码完整检查、EXE 构建及包内 `.12` 自检已通过。统一检查入口增加 180 秒限时堆栈诊断；运行 `34258231428` 定位到 `test_reopened_setup_imports_existing_json_and_exposes_both_exports` 的 `window.update()`，堆栈显示处理线程已结束、主线程仍在 Tk 的全队列处理。测试现先关闭旧窗口，再用与应用一致的 mainloop 和 Tk 定时器执行重开验证，保留 5 秒期限与所有导入、双导出、书签确认及历史断言；不跳过用例或放宽发布门禁。中间逐事件尝试的本机断言失败亦保留在本机证据中。
+双平台 CI 与最终附件回下载正在执行，完成结果将在本节补记。个人数据、配置、原始响应和本机证据保留本机，没有重新采集学校或操作个人日历。
+审查方式：维护助手阅读最终差异并执行白名单、敏感内容、CMD CRLF 和保护文件哈希检查；独立第二审查者 NOT RUN。
+实机边界见 [rc12 验收](STUDENT_ACCEPTANCE.md#acceptance-rc12)。此前 Safari `.11` 及旧包的学校或本人确认不转记到 rc12。
+回滚依据：保留旧 Windows/Mac 交付 ZIP 和改前源码备份，使用新的版本号与新附件；源码恢复用反向提交，不重写公开历史，不重置个人 UID 或数据目录。
+
 本页用于按问题和版本查证据，不要求每次维护通读。当前程序基线见 [PROJECT_STATUS](PROJECT_STATUS.md#baseline)，检查命令与适用条件见 [MAINTENANCE](MAINTENANCE.md#verification-gates)，学校、手机及设备验收见 [STUDENT_ACCEPTANCE](STUDENT_ACCEPTANCE.md)。
 
 <a id="evidence-index"></a>
@@ -7,6 +28,7 @@
 
 | 要核对的事项 | 阅读位置 | 适用边界 |
 | --- | --- | --- |
+| Mac 源码适配与本机真实采集 | [FEAT-20260907-MAC](#macos-local-trial) | Apple 芯片、Chrome、原生窗口；手机和发行包另验 |
 | rc11 执行日志与排错包 | [FEAT-20260907-01](#diagnostics-rc11) | 自动记录、脱敏重放、浏览器元数据、包自检与发布证据 |
 | GitHub 源码同步 | [2026-09-07 同步](#verification-github-sync-20260907) | 今日修复与实测收尾已推送 main 并回读确认；Release 附件未更新 |
 | 当日 bug 收尾与实测 | [2026-09-07 收尾](#verification-bugs-closed-20260907) | 当日 3 个 bug 已关闭；实测 PASS（用户确认） |
@@ -42,6 +64,167 @@
 PASS、FAIL、NOT RUN 和不适用的含义以 MAINTENANCE 为准。原始个人课表、账号、凭证或私人配置不写入记录；敏感证据只在本人忽略目录保管，公开版本只写脱敏摘要。当前记录提交由 `git log -1 --format=%H -- VERIFICATION.md` 定位；后续存在更多记录时按问题编号查历史。
 
 ## 维护记录
+
+<a id="mac-r5"></a>
+### BUILD-20260909-MAC-R5：交付包含 Safari 与新面板的 Mac 软件
+
+- 用户要求打开助手软件；本轮授权为本地构建与文件交付，未重新采集学校或公开发布。
+  基线 `codex/dual-platform-package-local` / `9122ba7f7ed30bcf6627a5162e993c51eedb2b1c`，
+  保留全部既有未提交工作；改前 63 个源码文件及 973 个个人/旧包文件已记录哈希。
+- 产物包含已有 Safari `.11` 适配与 `.12` 面板源码；本轮仅把 Mac 标签/构建号更新为
+  `Mac 修订 5` / `11.5`，同步包内说明、使用说明、包装测试及包内自检版本断言。
+- 初查 FAIL：包装测试仍断言“修订 4”；初次包内自检仍断言构建号 `11.4`。
+  更新对应断言后重新完整检查、构建和打包。初次失败日志和中间 ZIP 单独保留，不作为交付文件。
+- 最终完整检查 PASS：Python 3.12.14 / macOS 26.6.2 arm64，执行 `python -X utf8 check.py`，
+  187 项 Python 中 186 通过、1 项 Windows CMD 跳过，三组 JavaScript 通过，退出 0。
+- 构建和打包 PASS：PyInstaller 6.22.2，使用 `build_desktop.py` 的独立输出/工作目录和
+  `package_desktop.py --mac-only`；应用、说明、清单、ZIP 校验值相互一致。
+  ZIP SHA-256：`b90041515d4ba62d4d69d35b8b0a1704f6d1d9e9f187dc119e3cff567be4a680`；源码指纹：`3e4924723a4cd7b9d0adf410bb69ba05e530539fe6431e454577f4efd0fa4f6c`。
+- 最终 ZIP 回读 PASS：954 条记录，854 个 APP 普通文件、47 个符号链接；CRC、白名单、
+  UTF-8 文件名、可执行模式和全部校验值通过。24 个原生二进制最低版本均为 11.0.0。
+  在新的中文及空格路径解压，移除 Python 环境变量并隔离 PATH；包内自检退出 0，
+  `frozen=true`、`python_on_path=false`、依赖均位于应用包内；深度严格签名结构检查通过。
+- 普通启动 PASS：从最终 ZIP 解压 APP 使用独立数据目录，原生窗口显示学期选择页；
+  Tab/Space 可进入书签引导，实际生成的安装页包含 Safari 和 `2026-09-08.12`；Command+Q 退出。
+  自动化坐标点击未切页，改用键盘完成；本人鼠标/触控板验收 NOT RUN，不继承修订 4 的确认。
+  窗口工具退出后读取状态触发重新打开，已再次关闭并核对无测试进程。
+- 差异审查 PASS（单代理）：版本和说明为本轮变动，业务算法、学校请求、CMD 及图示数据未变；
+  973 个保护文件和文件清单保持不变。独立审查 NOT RUN。
+- 新包学校短/全范围、详情交叉核对、独立重复同步、手机及其他系统 NOT RUN；
+  先前 `.11` 的实采与 `.12` 的 Safari 本地示例各保留原对象归属。
+  本次签名检查仅为结构检查，不是 Developer ID 或 Apple 公证。
+- 未提交或发布；旧 Mac 修订 4 ZIP 保留。回滚只恢复本轮改前备份的明确文件，
+  不恢复整个仓库或个人课表目录。最终源码、日志、原生截图、包内报告与 ZIP 位于本机交付目录。
+
+<a id="collector-ui-20260909"></a>
+### FEAT-20260909-UI：采集面板信息层级与布局
+
+- 用户截图反馈：标题把“课表采集”、完整修订号和原始学期标识排列在同一行。
+  本轮限定为界面优化；不重新采集学校，不重打包、提交或发布。
+- 基线仍为 `codex/dual-platform-package-local` / `9122ba7f7ed30bcf6627a5162e993c51eedb2b1c`；
+  原有 Mac 与 Safari 未提交修改已保留。改前 63 个源码文件、差异与哈希已在本机备份。
+  视觉问题由用户截图和 Safari 中旧 `.11` 面板确认，不为纯样式编写改前失败断言。
+- 改动：`browser_ui.mjs` 使用独立标题、中文学期、状态标记和按钮区域；版本号置底；
+  完成后突出下一步，原有下载与导入说明可展开；窄窗口按钮换行。
+  继续采集清空旧操作区，重复复制复用排错区域；内容使用 `textContent`，不注入响应 HTML。
+  `test_capture.mjs` 的现有 DOM 模拟改为递归查找，保留下载、失败、恢复和账号校验断言。
+- PASS：macOS arm64 / Python 3.12.14，执行 `python -X utf8 check.py`，退出 0；
+  187 项 Python 中 186 通过、1 项 Windows CMD 跳过，三组 JavaScript 通过。
+  生成的仓库书签及本机全学期安装页均逐字核对当前五个浏览器模块，版本为 `2026-09-08.12`；
+  本机安装页 SHA-256 为 `54bfbaa08e9ac3686d683ea7f8e8c19207cec4ea400b05d199305982168944cd`。
+- PASS（Safari 本地示例）：标准宽度与 360px 窄窗口；采集中、完成、失败、下载受阻、登录提示；
+  说明展开/收起、失败后继续采集不重复按钮、关闭提示。示例不访问学校，下载调用被拦截，
+  不生成可导入个人课表的文件。截图、检查输出和本轮差异仅留本机证据目录。
+- 差异审查 PASS：单代理逐段审阅本轮差异，学校请求、采集内容、身份/UID、导出和 CMD 未修改。
+  独立审查 NOT RUN；内置浏览器连接失败，已改用原生 Safari 验证，不以其他浏览器推定 Safari 通过。
+- NOT RUN：`.12` 用户手动书签替换及学校短/全范围、网页核对、重复同步，当前 UI 请求未扩展到实采。
+  `.11` 的真实学校结果保留原版本归属；现有 APP 包不含本次 UI，未重新构建。
+- 回滚：仅从本轮改前备份逐项恢复 `browser_ui.mjs`、`test_capture.mjs`、`chrome-bookmark.html`
+  及本轮维护文档；不得用 Git HEAD 或旧包覆盖其他未提交修改，也不重置个人数据。
+
+<a id="safari-adaptation"></a>
+### FEAT-20260908-SAFARI：Safari 安装、诊断与本机采集
+
+- 2026-09-08；用户要求适配 Safari，并提供已正常登录的教务首页。
+- 基线 `codex/dual-platform-package-local` / `9122ba7f7ed30bcf6627a5162e993c51eedb2b1c`；
+  保留 Mac 修订 4 和既有全部未提交修改。改前源码、差异和个人文件哈希在本机单独备份。
+- 合成复现：生成书签在 Safari UA 下把 `diagnostics.browser` 记录为 `unknown`；
+  `test_capture.mjs` 新场景改前退出 1。浏览器和 Python 脱敏白名单也未包含 Safari。
+- 修复：识别 Safari 并仅记录浏览器类别；补齐个人收藏栏、编辑地址、本地文件打开和
+  下载恢复引导。安装页版本从采集器读取，避免旧版 `.9` 文案与实际 `.10` 不一致。
+  学校请求、采集格式、账号哈希、UID 和导出算法保持原样。
+- 完整检查：已有 Python 3.12.14 / macOS arm64 环境运行 `python -X utf8 check.py`，
+  退出 0；187 项 Python 中 186 通过、1 项 Windows CMD 跳过；三组 JS 通过。
+  新用例覆盖 Safari 与 Chrome/Edge/Firefox/unknown 标签、完整 UA 不落盘及重新下载不重采。
+- 书签版本 `2026-09-08.11`；重新生成仓库安装页和本机短/全范围安装页。
+  Safari 26.6.2（21624.5.1.11.3）已显示本地安装页及正常登录的教务首页。
+- 本人确认手工添加短/全范围书签。首次短采 FAIL：HTTP 200、67 字节 JSON，
+  `Title/List/List2/StuExam` 均为 null；采集器拒绝完整下载，保留诊断和旧课表。
+  正常从首页打开“我的课表”、看到课程后回首页，同一 `.11` 书签短采 PASS。
+  观察支持“先进入学校课表页”这一恢复步骤，未检查服务器或凭据，不能断言底层会话原因。
+- 学校验收 PASS：短范围 17 次/18 响应；完整与独立重复均为 128 次/134 响应；
+  27 张 Safari 月课表卡片、12 条打开的详情以及全部 CSV/ICS 回读核对通过。
+  重复文件时间和哈希不同，duplicate=false，差异 0/0/0；原 UID/别名/时间/sequence 保留，
+  双导出字节一致。多段内容按组成部分和教师集合核对，展示顺序不作为课表变更。
+- 最终完整检查退出 0：187 项 Python、186 通过、1 项 Windows CMD 跳过；三组 JS 通过。
+  最终实际生成安装页在 Safari 显示基础功能检查通过，`.11` 书签字节与当前模块对应。
+  323 个原个人文件哈希保持，改前 Mac 修订 4 桌面源码服务导入 `.11` 也得到相同双导出。
+  本机证据为 Safari 适配验收目录的最终检查、源码自检、改动与保护核对、旧源码兼容记录，
+  及独立 Safari 验收目录的三次 capture/result、网页观察和回读验证；个人材料不公开。
+  实机边界见 [Safari 验收](STUDENT_ACCEPTANCE.md#acceptance-safari)。
+- 本轮未构建、提交、推送或发布；旧 Mac 修订 4 ZIP 保留。独立第二人审查 NOT RUN。
+  回滚只依据本轮改前副本恢复本轮修改，不能用 Git HEAD 覆盖前轮未提交工作。
+
+
+<a id="mac-r4"></a>
+## BUG-20260908-MAC-R4：Mac 恢复、退出与独立包
+
+权限：按用户确认的 Mac 修复计划执行，仅本地源码与独立 Mac 验收包，不提交、推送或发布。
+基线分支 `codex/dual-platform-package-local`，HEAD `9122ba7f7ed30bcf6627a5162e993c51eedb2b1c`。
+原有修改为 build_desktop.py、desktop_service.py、desktop_smoke.py、test_desktop.py、使用说明.html，
+另有未跟踪 package_desktop.py、test_packaging.py；全部先备份再增量修改。
+
+改前复现：合成偏好 `[]` 导致启动钩子 AttributeError；原数据目录失联后保存设置仍会创建目录；
+Mac 系统 Quit / Dock 回调缺失；Finder 子进程失败未检查；现有包版本字段为 0.0.0。
+新增首轮 6 项回归均未通过（2 FAIL、4 ERROR，其中缺失新接口的 ERROR 为待实现项）。
+
+修复：统一启动位置校验及只读恢复状态；明确重新选择原目录或确认新建独立空目录，备份原偏好；
+系统退出接入取消/提交边界；Dock 恢复和窗口关闭快捷键；Finder 非阻塞状态检查、5 秒超时及路径重试；
+Mac spec 在签名前写入版本、构建号、最低系统要求；增加独立 Mac ZIP 与一致的使用说明。
+课表协议、账号、UID、数据格式、浏览器模块和 CMD 不变。
+
+最终复核另补一个已复现边界：默认数据目录在运行中失联，若备用日志仍在该目录下，
+后台操作前的日志会重建目录。新增回归的同目录/子目录两个分支均先 FAIL；
+改为内存日志后 PASS，仍能导出排错 ZIP。首次完整检查为 185 项，补充后以以下最终结果为准。
+
+- PASS：`python -B -X utf8 check.py`，186 项 Python：185 通过、0 失败、1 项 Windows CMD 跳过；三组 JavaScript 检查通过。源码自检 PASS。
+- PASS：偏好数组/标量/损坏 JSON、目录失联/拒绝访问、恢复前禁止写入、重新选择原目录保留历史、空目录确认、重复退出、Finder 失败/超时等定向回归。
+- PASS：等待/处理阶段取消不改旧课表；提交/导出阶段退出等待保存及独立双导出结束。测试使用真实工作线程和合成阶段阻塞。
+- PASS：最终 ZIP 从独立中文空格路径解压；CRC、精确白名单、UTF-8、执行权限、符号链接、全部 SHA-256 和源码指纹一致。
+- PASS：最终 APP 包内自检，清除 PYTHONHOME/PYTHONPATH 并设 PATH=/usr/bin:/bin；frozen=true，python_on_path=false，数据在包外、依赖在包内。直接 JSON 导入后重开、重复导入、两种独立导出及 UID 保留通过。
+- PASS：版本字段 1.0.0、构建号 11.4、最低系统声明 11.0；24 个原生二进制均要求 11.0.0。独立目录解压、自检后及原生操作结束后 codesign strict 均通过。
+- PASS：最终包原生文件选择/取消/重复导入、应用菜单退出、子窗口 Command+W、CSV/ICS/排错 ZIP Finder 定位。旧源码创建的独立示例在升级重开后保留 20 个课表、历史及输出文件的哈希。
+- PASS：用户本轮确认触控板和鼠标“滚动和点击都正常”，Dock“恢复原窗口，没有新增窗口”。确认与最终包的构建归属见 [验收表](STUDENT_ACCEPTANCE.md#acceptance-mac-r4)。
+- FAIL → PASS：首次构建在 FileProvider 管理的工作区解压后，APP 根目录出现 FinderInfo 导致签名结构检查失败；同一 ZIP 在独立本地目录重新解压后通过。最终交付包也在独立目录通过。没有移除下载隔离或关闭系统安全检查，保留原失败记录。
+- NOT RUN：本轮实际系统权限提示、下载隔离后的首次打开、Dock 菜单逐阶段退出、其他系统/设备及正式签名公证；不能由自动测试或旧包人工验收代替。
+
+交付：`课表助手-Mac-arm64-验收包-修订4.zip`，22,642,092 字节；954 条 ZIP 记录，
+APP 内 854 个文件、47 个符号链接。SHA-256：`060488fcbd4352b9428be498dad0e93330183a20065b63279416b50d0f5e04bf`。
+源码指纹：`36e9559fcc60e4f8ec7e061ca7790bd6a294bd60aeed6a05360d8f41b9140c93`。
+应用仍为 1.0.0-rc11，候选区分为 Mac 修订 4；原修订 3 双平台包哈希保持
+`5f658ce3e0d986ed5b55733b7e1f6b417a7d0861b12144ec282354f6fe07f704`，没有混合合包。
+独立第二人审查 NOT RUN；本轮由实现者审查最终差异。学校与个人日历操作不适用。
+备份和原始日志仅留本机；可逐文件恢复本次改前副本，不回滚已有未提交改动或个人历史。
+
+
+<a id="macos-local-trial"></a>
+## FEAT-20260907-MAC：macOS 源码本机试用
+
+用户授权在 Apple 芯片 Mac 上建立隔离环境、修复平台边界并用合成课表试用，不打包、不发布、不访问学校或个人日历。基线公开提交 `3dd9f07bc4b77670594fff649885c3c54d049b29`，干净工作区建立 `codex/macos-local-trial`；应用版本与采集书签版本保持 rc11 原值。
+
+改前：macOS 26.6.2 arm64、Python 3.12.14、Tcl/Tk 9.0.4；锁定运行依赖安装在独立虚拟环境。完整检查退出 0：147 项 Python 中 146 通过、1 项 Windows CMD 跳过，三组 JS 通过；源码自检退出 0 / PASS，`frozen=false`。新增平台检查 6 项中 5 FAIL、1 PASS，复现 Mac 数据路径、Finder 定位、小幅滚动、安装页快捷键及下载目录拒绝访问错误提示。证据留在本机试用目录。
+
+修改：标准库平台辅助模块统一默认目录和主程序/启动日志路径；Finder 文件定位、系统字体、Aqua 滚动、Mac 安装提示和可恢复的目录访问错误。课表算法、数据格式、浏览器采集模块及 CMD 保留原件。
+
+- PASS：改后 `python -X utf8 check.py` 退出 0，153 项 Python 中 152 通过、0 失败、1 项 Windows CMD 跳过，三组 JS 通过；新增 6 项平台边界检查全部通过。源码 `desktop.py --data-root <隔离目录> --self-test <报告>` 退出 0 / PASS，未冻结打包。目录访问测试同时模拟 `listdir` 与 `scandir` 被拒，覆盖不同 Python 版本的 pathlib 实现。
+- PASS：独立示例数据合并普通课程、合班分段和混合详情，共 5 次课程；CSV 与 ICS 数量核对一致，重复导入不改变 UID、当前指针及双导出字节。排错 ZIP 完整可读；示例目录未记录手机已导入。
+- PASS：源码窗口使用 Aqua 和 PingFang SC，运行时报告可见；用户明确确认屏幕上能看到窗口。Finder 实际选中示例排错 ZIP，原生工具取得截图。Dock 显示解释器 `python3.12` 属于本次源码启动方式，未制作应用图标或 `.app`。
+- PASS：用户实机确认“滚动正常”及原生排错 ZIP “保存成功，Finder 已选中”；原生工具再次确认新保存 ZIP 处于选中状态并截图。详细归属见 [本机验收表](STUDENT_ACCEPTANCE.md#acceptance-macos-local)。
+- NOT RUN：原生工具无法识别未注册为应用包的独立 Python 窗口，故未取得该窗口本身截图；原生 JSON 选择对话框、窗口缩放和逐页视觉检查不以组件测试替代。学校、手机、其他设备及 Windows 实机均未运行。
+- 审查：实现者检查平台分支、文件路径参数、默认目录、错误恢复和最终 diff；`git diff --check` 通过。独立第二人/代理审查 NOT RUN。无公开推送、服务器操作或发布；回滚仅涉及本次源码与维护文档，不回退任何课表历史。
+
+### 2026-09-08 补充验收与源码提交
+
+用户扩大授权：完成检查，解决原生工具不能操作 Python 窗口，并以本人的已登录 Chrome 真实采集，合理推送回同一 GitHub 仓库。前述“未访问学校、未推送”描述 9 月 7 日阶段，现由本节补充；个人日历、服务器、发布版本及安装包不在本次范围。
+
+- **FAIL → PASS：** 目录本身的 `is_dir()` 被拒时，手动 JSON 选择框也会失败。改前新增平台检查 10 项中 9 通过、1 错误，错误为 `PermissionError`；`desktop.py` 在目录探测失败时不指定初始目录，仍允许系统选择其他 JSON。改后 10 项全部通过。
+- **FAIL → PASS：** 在 Mac 默认临时目录执行完整检查，两个原有测试把 `/var` 与 `/private/var` 当成不同目录，导致写盘故障注入未命中和相对目录断言失败。仅将这两个测试的临时根目录规范化，不修改产品提交或路径规则。保留首次 157 项中 154 通过、2 失败、1 跳过的记录。
+- **PASS：** 最终本机 `python -X utf8 check.py` 退出 0：157 项 Python 中 156 通过、0 失败、1 项 Windows CMD 跳过，三组 JavaScript 通过。源码自检退出 0 / PASS，`frozen=false`。原版 147 项和第一次改后 153 项记录仍保留，不混算执行次数。
+- **PASS：** 本地创建仅调用现有虚拟环境与源码的 `.app` 入口，用户允许任务目录访问后，原生工具可识别与操作窗口。完成首次引导、原生选文件/取消/重复导入、CSV 与 ICS Finder 定位、设置、帮助、两种导入指引、缩放、关闭重开及原生排错 ZIP 保存；合成截图及哈希证据保留本机。物理触控板使用用户直接确认，不冒充自动鼠标验证。
+- **PASS：** 真实学校 .10 采集器短范围 17 次课程、完整范围 128 次课程，随后独立重复完整采集 0/0/0。实际 CSV 与 ICS 全部 128 条回读核对；学校网页 27 条课程卡和其中 12 条详情核对一致。原短范围 UID 和三次采集的完整历史均保留；重复采集 CSV/ICS 字节一致。对应环境与界限见 [Mac 验收表](STUDENT_ACCEPTANCE.md#acceptance-macos-local)。
+- **PASS：** 源码提交 `eb44124b121d563c67df7111dc06aa3ad35f049a` 的 [Windows Actions](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/34186882493) 在 Windows Server 2025 / Python 3.12.10 / Node 22.23.2 上执行 157 项 Python，157 通过、0 失败、0 跳过，真实 CMD 用例通过；三组 JS 与源码自检 PASS。源码自检 `frozen=false`、`elevated=true`、`python_on_path=true`，不是无 Python 学生电脑或发行包验收；未构建 EXE、未发布附件。
+- 实现者审查源码 diff、手动恢复、平台路径和明确文件清单；采集器五个模块、课程算法、UID 规则、依赖、CMD、发布资源保持基线字节。公开内容只含源码、合成测试、工作流和汇总文档；个人课表、配置、网页详情、启动入口与截图不提交。独立审查 NOT RUN。
+- 源码已通过独立 `codex/macos-local-trial` 分支提交并建立 [PR #2](https://github.com/lhwen686/shsmu-schedule-sync/pull/2)；远端树与本机明确暂存清单一致，17 个修改文件，20 个保护文件保持原始 SHA-256；不合并 main、不调整应用或书签版本、不发布软件包。当前记录提交可由 `git log -1 --format=%H -- VERIFICATION.md` 定位；回滚只撤销该分支源码修改，个人数据目录不参与回滚。
 
 <a id="diagnostics-rc11"></a>
 ## FEAT-20260907-01：rc11 执行日志与一键排错包

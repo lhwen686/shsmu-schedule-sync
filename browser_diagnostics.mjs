@@ -41,7 +41,7 @@ export function browserDiagnostic(value) {
     if (key === 'transport') return ['fetch','xhr'].includes(v) ? v : 'unknown';
     if (key === 'stage') return ['homepage','month','details','download','collect'].includes(v) ? v : 'collect';
     if (key === 'origin') return v === 'https://jwstu.shsmu.edu.cn' ? v : 'unverified-origin';
-    if (key === 'browser') return ['Chrome','Edge','Firefox'].includes(v) ? v : 'unknown';
+    if (key === 'browser') return ['Chrome','Edge','Firefox','Safari'].includes(v) ? v : 'unknown';
     if (key === 'content_type') return ['application/json','text/html','text/plain'].includes(String(v).split(';')[0]) ? String(v).split(';')[0] : 'other';
     if (['List2','StuExam'].includes(key)) return v === null ? null : Array.isArray(v) && !v.length ? [] : shape(v);
     if (Array.isArray(v)) return v.slice(0, 10000).map(item => clean(item, '', depth + 1));

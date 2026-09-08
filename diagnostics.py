@@ -1,6 +1,6 @@
 """Bounded, local diagnostic records. Only de-identified values reach disk.
 
-This module has no application/dependency imports so startup failures can use it.
+Only standard-library platform helpers are imported, so startup failures can use it.
 Support material is evidence, never a timetable accepted by the import service.
 """
 from __future__ import annotations
@@ -20,8 +20,9 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from platform_support import default_data_root, select_data_root
 
-APP_VERSION = '1.0.0-rc11'
+APP_VERSION = '1.0.0-rc12'
 MAX_DISK = 50 * 1024 * 1024
 MAX_MATERIAL = 8 * 1024 * 1024
 MAX_INPUT = 20_000_000
@@ -173,7 +174,7 @@ class Redactor:
         if field in ('state', 'status', 'transport', 'identity_basis', 'timezone', 'range_mode', 'browser'):
             allowed = {'start', 'success', 'failure', 'retry', 'fetch', 'xhr', 'CONFIRMED', 'CANCELLED',
                        'slot', 'detail', 'teaching-event', 'main', 'Asia/Shanghai', 'custom',
-                       'school_calendar', 'Chrome', 'Edge', 'Firefox', 'unknown'}
+                       'school_calendar', 'Chrome', 'Edge', 'Firefox', 'Safari', 'unknown'}
             if type(value) is int and 0 <= value <= 599:
                 return value
             return value if isinstance(value, str) and value in allowed else 'unknown'
@@ -218,6 +219,17 @@ def recorded(kind):
     def decorate(method):
         @functools.wraps(method)
         def call(self, *args, **kwargs):
+            # A disconnected data root must not be recreated by logging before
+            # the operation's own availability check has selected fallback logs.
+            guard = getattr(self, 'require_available', None)
+            try:
+                if guard is not None:
+                    guard()
+            except Exception as error:
+                self.diagnostics.begin(kind)
+                self.diagnostics.exception(error)
+                self.diagnostics.finish('failed')
+                raise
             log = self.diagnostics
             log.begin('export' if kwargs.get('export_only') else kind)
             try:
@@ -233,8 +245,9 @@ def recorded(kind):
 
 
 class DiagnosticRecorder:
-    def __init__(self, root, *, max_disk=MAX_DISK):
+    def __init__(self, root, *, max_disk=MAX_DISK, memory_only=False):
         self.directory = Path(root) / 'local/diagnostics'
+        self.memory_only = memory_only
         self.max_disk = max_disk
         self.lock = threading.RLock()
         self.record = None
@@ -262,6 +275,8 @@ class DiagnosticRecorder:
             self.storage_warning = True
 
     def _write(self, suffix, value):
+        if self.memory_only:
+            raise OSError('Diagnostic storage is unavailable')
         self.directory.mkdir(parents=True, exist_ok=True)
         destination = self.directory / (self.record['operation_id'] + suffix)
         # No arbitrary path or temporary files are included in a support export.
@@ -438,6 +453,8 @@ class DiagnosticRecorder:
         self.attach('browser', value)
 
     def _owned(self):
+        if self.memory_only:
+            return []
         try:
             if not self.directory.is_dir():
                 return []
@@ -559,18 +576,15 @@ class DiagnosticRecorder:
 def install_startup_hook():
     """Only called by the executable/script entry, before optional imports."""
     import sys
-    root = Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData/Local') / 'SHSMUScheduleAssistant'
+    base = default_data_root()
+    explicit = None
     try:
         if '--data-root' in sys.argv:
-            root = Path(sys.argv[sys.argv.index('--data-root') + 1])
-        else:
-            preferences = json.loads((root / 'preferences.json').read_text(encoding='utf-8'))
-            candidate = preferences.get('data_root')
-            if isinstance(candidate, str) and Path(candidate).is_absolute() and Path(candidate).is_dir():
-                root = Path(candidate)
-    except (OSError, ValueError, IndexError):
+            explicit = sys.argv[sys.argv.index('--data-root') + 1]
+    except IndexError:
         pass
-    log = DiagnosticRecorder(root)
+    root, issue = select_data_root(base, explicit)
+    log = DiagnosticRecorder(base if issue else root)
     def handle(kind, error, tb):
         log.begin('startup')
         log.exception(error)

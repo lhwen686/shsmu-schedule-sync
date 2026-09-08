@@ -7,7 +7,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from datetime import date
 from icalendar import Calendar
 
@@ -49,7 +49,7 @@ class DesktopTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='课表 desktop ')
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.service = DesktopService(self.root)
         self.service.initialize()
         self.service.save_settings(CONFIG)
@@ -145,6 +145,37 @@ class DesktopTests(unittest.TestCase):
         reopened.initialize()
         self.assertEqual(reopened.setup_step(), 0)
         self.assertEqual(self.state_bytes(), before)
+
+    def test_manual_json_without_bookmark_ack_reopens_saved_timetable(self):
+        self.service.confirm_term()
+        self.service.run(capture=write_capture(self.root, config=self.service.config()))
+        self.assertNotIn('bookmark_ack', self.service.state())
+        before = self.state_bytes()
+        reopened = DesktopService(self.root)
+        reopened.initialize()
+        self.assertEqual(reopened.setup_step(), 0)
+        self.assertNotIn('bookmark_ack', reopened.state())
+        self.assertEqual(self.state_bytes(), before)
+        self.assertIsNotNone(reopened.ready_export())
+        self.assertIsNotNone(reopened.ready_apple_export())
+        # A saved timetable from a different term cannot complete new setup.
+        reopened.save_settings({**reopened.config(), 'semester': '2026-2027:2',
+                                'range_mode': 'custom'})
+        self.assertEqual(reopened.setup_step(), 2)
+
+    def test_incomplete_manual_json_does_not_complete_onboarding(self):
+        self.service.confirm_term()
+        capture = write_capture(self.root, config=self.service.config())
+        value = json.loads(capture.read_text())
+        value['complete'] = False
+        capture.write_text(json.dumps(value), encoding='utf-8')
+        with self.assertRaises((DataError, SourceError)):
+            self.service.run(capture=capture)
+        reopened = DesktopService(self.root)
+        reopened.initialize()
+        self.assertEqual(reopened.setup_step(), 2)
+        self.assertIsNone(sync.load_current(self.root))
+        self.assertNotIn('bookmark_ack', reopened.state())
 
     def test_collector_upgrade_updates_installer_preserving_schedule_and_config(self):
         config = student_term_config(CONFIG)
@@ -592,11 +623,11 @@ class DesktopWidgetTests(unittest.TestCase):
         widgets = dialog.winfo_children()[0].winfo_children()
         save = next(w for w in widgets if isinstance(w, ttk.Button))
         target = Path(self.temp.name) / '用户选择的排错包.zip'
-        with patch('desktop.filedialog.asksaveasfilename', return_value=''), patch('desktop.reveal_file') as reveal:
+        with patch('desktop.filedialog.asksaveasfilename', return_value=''), patch('desktop.reveal_file', return_value=Mock(poll=Mock(return_value=0))) as reveal:
             save.invoke()
             reveal.assert_not_called()
             self.assertTrue(dialog.winfo_exists())
-        with patch('desktop.filedialog.asksaveasfilename', return_value=str(target)), patch('desktop.reveal_file') as reveal:
+        with patch('desktop.filedialog.asksaveasfilename', return_value=str(target)), patch('desktop.reveal_file', return_value=Mock(poll=Mock(return_value=0))) as reveal:
             save.invoke()
             reveal.assert_called_once_with(target)
         with zipfile.ZipFile(target) as archive:
@@ -718,13 +749,13 @@ class DesktopWidgetTests(unittest.TestCase):
             show()
             self.window.update_idletasks()
             buttons = self.buttons()
-            with patch('desktop.reveal_file') as reveal:
+            with patch('desktop.reveal_file', return_value=Mock(poll=Mock(return_value=0))) as reveal:
                 buttons['导出 WakeUp 文件'].invoke()
                 buttons['导出苹果日历'].invoke()
                 self.assertEqual([call.args[0] for call in reveal.call_args_list],
                     [self.ui.service.root / 'output/wakeup.csv', self.ui.service.root / 'output/calendar.ics'])
         (self.ui.service.root / 'output/calendar.ics').write_bytes(b'tampered')
-        with patch('desktop.reveal_file') as reveal:
+        with patch('desktop.reveal_file', return_value=Mock(poll=Mock(return_value=0))) as reveal:
             self.ui.reveal_apple()
             reveal.assert_not_called()
         self.assertIn('重新生成导入文件', self.buttons())
@@ -737,6 +768,7 @@ class DesktopWidgetTests(unittest.TestCase):
         capture = write_capture(Path(self.temp.name), config=self.ui.service.config())
         before = capture.read_bytes()
         bookmark_ack = self.ui.service.state()['bookmark_ack']
+        self.ui.dispose()
         window = tk.Tk()
         window.withdraw()
         reopened = AssistantWindow(window, Path(self.temp.name))
@@ -746,14 +778,24 @@ class DesktopWidgetTests(unittest.TestCase):
             with patch('desktop.filedialog.askopenfilename', return_value=str(capture)), \
                     patch('desktop_service.wait_capture', side_effect=AssertionError('must use selected JSON')):
                 self.buttons(reopened)['文件已经下载'].invoke()
-                deadline = time.monotonic() + 5
-                while reopened.running and time.monotonic() < deadline:
-                    window.update()
-                    time.sleep(0.02)
+                # Use the application's normal event loop, with a Tk deadline.
+                # Nested update() may never drain Aqua Tk 8.6's native events.
+                def finish_when_ready():
+                    if not reopened.running:
+                        window.quit()
+                    else:
+                        completion[0] = window.after(20, finish_when_ready)
+                completion = [window.after(20, finish_when_ready)]
+                deadline = window.after(5000, window.quit)
+                try:
+                    window.mainloop()
+                finally:
+                    window.after_cancel(completion[0])
+                    window.after_cancel(deadline)
             self.assertFalse(reopened.running)
             self.assertIsNotNone(reopened.service.ready_export())
             self.assertIsNotNone(reopened.service.ready_apple_export())
-            with patch('desktop.reveal_file') as reveal:
+            with patch('desktop.reveal_file', return_value=Mock(poll=Mock(return_value=0))) as reveal:
                 self.buttons(reopened)['导出 WakeUp 文件'].invoke()
                 self.buttons(reopened)['导出苹果日历'].invoke()
                 self.assertEqual([call.args[0] for call in reveal.call_args_list],

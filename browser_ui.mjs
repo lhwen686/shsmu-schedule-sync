@@ -1,13 +1,13 @@
 // Bundled with the capability check, transport and collector by prepare.py.
 export async function runBookmark(config) {
-  const revision = '2026-09-07.10';
+  const revision = '2026-09-08.12';
   if (location.origin !== 'https://jwstu.shsmu.edu.cn') {
     alert('请先在添加课表按钮的同一个浏览器中打开并正常登录 https://jwstu.shsmu.edu.cn/Home，再点击书签或收藏夹里的课表按钮。');
     return;
   }
   const capabilities = browserCapabilities(window);
   if (!capabilities.ok) {
-    alert('当前浏览器或网页模式缺少课表助手需要的功能，尚未读取课表。\n请使用更新后的 Edge、Chrome 或 Firefox 普通窗口，避开 IE 兼容模式。\n请在所用浏览器重新添加课表按钮并正常登录。\n缺少：' + capabilities.missing.join('、'));
+    alert('当前浏览器或网页模式缺少课表助手需要的功能，尚未读取课表。\n请使用更新后的 Safari、Edge、Chrome 或 Firefox 普通窗口，避开 IE 兼容模式。\n请在所用浏览器重新添加课表按钮并正常登录。\n缺少：' + capabilities.missing.join('、'));
     return;
   }
   let panel = document.getElementById('shsmu-sync-status');
@@ -17,21 +17,59 @@ export async function runBookmark(config) {
     panel.id = 'shsmu-sync-status';
     document.body.append(panel);
   }
-  panel.style.cssText = 'position:fixed;right:18px;top:18px;z-index:2147483647;background:#fff;border:2px solid #12636a;border-radius:12px;padding:18px;width:520px;max-width:calc(100vw - 36px);max-height:calc(100vh - 36px);box-sizing:border-box;overflow:auto;font:16px/1.6 sans-serif;color:#123;box-shadow:0 4px 30px #0003;white-space:pre-line';
+  panel.textContent = '';
+  panel.style.cssText = 'position:fixed;right:16px;top:16px;z-index:2147483647;display:block;background:#fff;border:1px solid #dce7e5;border-radius:18px;padding:24px;width:460px;max-width:calc(100vw - 32px);max-height:calc(100vh - 32px);box-sizing:border-box;overflow:auto;font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-align:left;color:#233b3c;box-shadow:0 12px 48px #173b3826;white-space:normal;overflow-wrap:anywhere;color-scheme:light';
+  panel.setAttribute('role', 'region');
+  panel.setAttribute('aria-label', '课表采集');
+  function part(tag, text, css, parent = panel) {
+    const element = document.createElement(tag);
+    element.textContent = text;
+    element.style.cssText = 'box-sizing:border-box;font:inherit;color:inherit;' + css;
+    parent.append(element);
+    return element;
+  }
+  const header = part('div', '', 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap');
+  part('h2', '课表采集', 'margin:0;font-size:22px;line-height:1.4;font-weight:650;letter-spacing:.02em', header);
+  const badge = part('span', '', 'display:inline-block;flex-shrink:0;border-radius:20px;padding:4px 10px;font-size:12px;font-weight:600', header);
+  const term = /^(\d{4})-(\d{4}):([12])$/.exec(config.semester);
+  part('div', term ? `${term[1]}–${term[2]} 学年 · 第 ${term[3]} 学期` : `学期：${config.semester}`, 'margin-top:6px;color:#617775;font-size:13px');
+  const content = part('div', '', 'margin-top:20px;padding:18px;background:#f3f8f7;border:1px solid #e3eeeb;border-radius:12px');
+  content.setAttribute('role', 'status');
+  content.setAttribute('aria-live', 'polite');
+  content.setAttribute('aria-atomic', 'true');
+  const messageTitle = part('div', '', 'font-size:16px;font-weight:600;line-height:1.5', content);
+  const messageText = part('div', '', 'margin-top:8px;color:#536c69;white-space:pre-line', content);
+  const instructions = part('details', '', 'margin-top:16px');
+  instructions.hidden = true;
+  part('summary', '查看下载与导入说明', 'cursor:pointer;color:#426c65;font-size:13px', instructions);
+  const instructionText = part('div', '', 'margin-top:10px;color:#617775;font-size:13px;white-space:pre-line', instructions);
+  const actions = part('div', '', 'display:flex;gap:8px;flex-wrap:wrap;margin-top:18px');
+  const support = part('div', '', '');
+  part('div', `课表助手 · v${revision}`, 'margin-top:18px;padding-top:12px;border-top:1px solid #edf1f0;color:#6d807d;font-size:11px');
+  function state(label, warning = false) {
+    badge.textContent = label;
+    badge.style.color = warning ? '#8a5013' : '#176856';
+    badge.style.background = warning ? '#fff2dc' : '#e8f4ed';
+  }
+  function showMessage(message) {
+    const [first, ...rest] = message.split('\n');
+    messageTitle.textContent = first;
+    messageText.textContent = rest.join('\n\n');
+  }
   const checkpoint = new Map();
   const keyFor = (path, params) => path + JSON.stringify(Object.fromEntries(Object.entries(params).sort(([a],[b])=>a.localeCompare(b))));
   let checkpointAccount = '', started = 0, stage = '', trace = [], completed = null, downloadFailed = false;
   let currentResponse = null, lastDiagnostic = null, truncated = false;
-  const browser = /Edg\//.test(window.navigator?.userAgent ?? '') ? 'Edge' : /Firefox\//.test(window.navigator?.userAgent ?? '') ? 'Firefox' : /Chrome\//.test(window.navigator?.userAgent ?? '') ? 'Chrome' : 'unknown';
+  const agent = window.navigator?.userAgent ?? '';
+  const browser = /Edg\//.test(agent) ? 'Edge' : /Firefox\//.test(agent) ? 'Firefox' : /Chrome\//.test(agent) ? 'Chrome' : /Version\/[\d.]+.*Safari\//.test(agent) ? 'Safari' : 'unknown';
   const stageCode = () => stage.includes('教师详情') ? 'details' : stage.startsWith('读取 ') ? 'month' : stage.includes('账号') ? 'homepage' : 'collect';
   const metadata = () => ({schema_version:1, browser, request_log:trace, truncated,
     download_attempted:true, download_observed:false});
-  const heading = `课表采集 ${revision} · ${config.semester}\n`;
-  const status = message => { stage = message; panel.textContent = heading + message; };
+  const status = message => { stage = message; showMessage(message); };
   const read = createSchoolReader(location.origin, {observe:entry => {
     if (trace.length < 2000) trace.push(entry); else { truncated = true; trace[1999] = entry; }
     if (entry.state === 'retry')
-      panel.textContent = heading + stage + '\n请求暂未完成，稍后进行第 ' + (entry.attempt + 1) + '/3 次尝试…';
+      showMessage(stage + '\n请求暂未完成，稍后进行第 ' + (entry.attempt + 1) + '/3 次尝试…');
   }});
   function download(prefix, value) {
     const blob = new Blob([JSON.stringify(value)], {type:'application/json;charset=utf-8'});
@@ -47,16 +85,19 @@ export async function runBookmark(config) {
       setTimeout(() => URL.revokeObjectURL(url), 30000);
     }
   }
-  function button(label, action) {
-    const element = document.createElement('button');
-    element.textContent = label;
-    element.style.cssText = 'display:block;margin-top:12px';
+  function button(label, action, primary = false) {
+    const element = part('button', label, 'appearance:none;display:inline-block;min-height:40px;max-width:100%;margin:0;padding:9px 13px;border:1px solid ' + (primary ? '#176856' : '#d9e3e0') + ';border-radius:9px;background:' + (primary ? '#176856' : '#fff') + ';color:' + (primary ? '#fff' : '#42625c') + ';font-size:13px;font-weight:500;line-height:1.5;text-align:center;cursor:pointer', actions);
+    element.type = 'button';
     element.onclick = action;
-    panel.append(element);
   }
   async function run() {
     if (panel.dataset.busy === 'true') return;
     panel.dataset.busy = 'true';
+    actions.textContent = '';
+    support.textContent = '';
+    instructions.hidden = true;
+    instructions.open = false;
+    state('正在采集');
     completed = null;
     downloadFailed = false;
     trace = [];
@@ -96,18 +137,25 @@ export async function runBookmark(config) {
           checkpointAccount = '';
         }
       });
-      if (downloadFailed) status('采集完成，但下载未能发起。请点击“重新下载采集文件”，并查看 浏览器下载提示。无需重新采集。');
+      if (downloadFailed) {
+        state('等待下载', true);
+        showMessage('课表已采集，下载未能发起\n请点击“重新下载采集文件”，并查看浏览器下载提示。无需重新采集。');
+      } else if (completed) {
+        state('采集完成');
+        messageTitle.textContent = stage.split('；')[0];
+        messageText.textContent = '已发起课表 JSON 下载。\n回到“医学院课表助手”继续处理；若未自动处理，点击“文件已经下载”选择刚下载的 JSON。';
+        instructionText.textContent = stage.split('\n').slice(1).join('\n\n');
+        instructions.hidden = false;
+      }
     } catch (error) {
       const code = error?.code ?? 'DATA_VALIDATION';
       if (code === 'HOMEPAGE_REQUIRED') {
         checkpoint.clear();
         checkpointAccount = '';
-        panel.textContent = heading + '请先打开教务首页，完成正常登录后，在首页再次点击“同步医学院课表”书签。';
-        const home = document.createElement('a');
+        state('需要登录', true);
+        showMessage('请先打开教务首页\n完成正常登录后，在首页再次点击“同步医学院课表”书签。');
+        const home = part('a', '前往教务首页', 'display:inline-block;padding:9px 13px;border-radius:9px;background:#176856;color:#fff;text-decoration:none;font-size:13px', actions);
         home.href = 'https://jwstu.shsmu.edu.cn/Home';
-        home.textContent = '前往教务首页';
-        home.style.cssText = 'display:block;margin-top:12px;color:#12636a;font-weight:bold';
-        panel.append(home);
         lastDiagnostic = browserDiagnostic({format:'shsmu-diagnostic-v1', collector_revision:revision,
           config, complete:false, failure:{stage:'homepage',code}, observed_at:new Date().toISOString()});
         return;
@@ -119,18 +167,19 @@ export async function runBookmark(config) {
         failure:{stage:stageCode(), code, request}, request_log:trace, responses:[...checkpoint.values()],
         current_response:currentResponse, diagnostics:metadata()});
       lastDiagnostic = diagnostic;
-      panel.textContent = heading + '采集未完成：' + message + '\n位置：' + stage +
+      state('采集未完成', true);
+      showMessage('采集未完成：' + message + '\n位置：' + stage +
         (request ? '\n接口：' + request.path + '（尝试 ' + request.attempt + ' 次）' : '') +
-        '\n已读取 ' + checkpoint.size + ' 份课表响应；本地旧课表保留。';
+        '\n已读取 ' + checkpoint.size + ' 份课表响应；本地旧课表保留。');
       try {
         download('shsmu-diagnostic-', diagnostic);
-        panel.textContent += '\n已发起诊断 JSON 下载，可用于定位问题；它不能用于导入课表。';
+        messageText.textContent += '\n\n已发起诊断 JSON 下载，可用于定位问题；它不能用于导入课表。';
       } catch {
-        panel.textContent += '\n诊断文件未能下载，请保留此提示。';
+        messageText.textContent += '\n\n诊断文件未能下载，请保留此提示。';
       }
       if (error?.retryable) {
-        panel.textContent += '\n可在本页继续采集，15 分钟内保留已读取进度；刷新页面会清除进度。';
-        button('继续采集', run);
+        messageText.textContent += '\n\n可在本页继续采集，15 分钟内保留已读取进度；刷新页面会清除进度。';
+        button('继续采集', run, true);
       } else {
         checkpoint.clear();
         checkpointAccount = '';
@@ -142,7 +191,7 @@ export async function runBookmark(config) {
           if (!completed) return;
           try { download('shsmu-capture-', completed); }
           catch { alert('下载未能发起，请保留本页并检查 浏览器下载提示后重试。'); }
-        });
+        }, true);
       }
       button('复制排错信息', () => {
         const report = lastDiagnostic ?? browserDiagnostic({format:'shsmu-browser-support-v1',
@@ -150,13 +199,13 @@ export async function runBookmark(config) {
           failure:downloadFailed ? {stage:'download',code:'DOWNLOAD_FAILED'} : null,
           diagnostics:metadata(), responses:completed?.responses ?? [...checkpoint.values()]});
         const text = JSON.stringify(report);
-        const area = document.createElement('textarea');
-        area.value = text; area.readOnly = true; area.style.cssText = 'display:block;width:100%;height:120px;margin-top:12px';
-        panel.append(area); area.select?.();
+        support.textContent = '';
+        const area = part('textarea', '', 'display:block;width:100%;height:120px;margin-top:12px;padding:10px;border:1px solid #d9e3e0;border-radius:8px;font-size:12px', support);
+        area.setAttribute('aria-label', '排错信息');
+        area.value = text; area.readOnly = true;
+        area.select?.();
         window.navigator?.clipboard?.writeText(text).catch(() => {});
-        const help = document.createElement('div');
-        help.textContent = '若未自动复制，请选中上方文本后复制。在助手“导出排错日志”中粘贴；含日期和节次，请仅发给维护者。';
-        panel.append(help);
+        part('div', '若未自动复制，请选中上方文本后复制。在助手“导出排错日志”中粘贴；含日期和节次，请仅发给维护者。', 'margin-top:8px;color:#617775;font-size:12px', support);
       });
       button('关闭提示', () => { checkpoint.clear(); completed = null; panel.remove(); });
     }

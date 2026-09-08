@@ -8,6 +8,15 @@ import tempfile
 from pathlib import Path
 
 
+def dependency_bundle_root(path):
+    bundle = Path(path).resolve()
+    # Modern macOS bundles place libraries in Frameworks and data in Resources,
+    # with symlinks between them. Both must remain inside the same Contents.
+    if sys.platform == 'darwin' and bundle.name == 'Frameworks' and bundle.parent.name == 'Contents':
+        return bundle.parent
+    return bundle
+
+
 def self_test(report_path):
     from desktop import AssistantWindow
     from desktop_service import DesktopService
@@ -29,6 +38,25 @@ def self_test(report_path):
             root = Path(folder)
             service = DesktopService(root)
             config = service.initialize()
+            # Verify the actual bundled installer, including every browser module.
+            import hashlib
+            import html
+            import re
+            from urllib.parse import unquote
+            from prepare import BROWSER_MODULES
+            from diagnostics import APP_VERSION
+            page = service.bookmark_path.read_text(encoding='utf-8')
+            bookmark = html.unescape(re.search(r'<a class="bookmark" href="([^"]+)"', page)[1])
+            script = unquote(bookmark.removeprefix('javascript:'))
+            assert "const revision = '2026-09-08.12';" in script
+            for name in BROWSER_MODULES:
+                body = (service.resources / name).read_text(encoding='utf-8').replace('export ', '', 1)
+                assert body in script, f'安装页未包含完整资源：{name}'
+            assert '课表助手 · v${revision}' in script
+            assert 'Safari' in page
+            report.update(app_version=APP_VERSION, collector_revision='2026-09-08.12',
+                          generated_bookmark_sha256=hashlib.sha256(bookmark.encode()).hexdigest(),
+                          generated_bookmark_length=len(bookmark), bundled_bookmark_verified=True)
             def shown(text):
                 return any('text' in child.keys() and str(child.cget('text')) == text
                            for child in ui.content.winfo_children())
@@ -160,6 +188,20 @@ def self_test(report_path):
                 assert all(value.encode('utf-8') not in shared_bytes
                            for value in ('运行验证课程', '示例教师', '示例教室', str(root)))
             report['diagnostic_package'] = True
+            manual = DesktopService(root / 'manual-json-recovery')
+            manual.initialize()
+            manual.confirm_term()
+            manual.run(capture=capture)
+            assert 'bookmark_ack' not in manual.state()
+            window = tk.Tk()
+            window.withdraw()
+            ui = AssistantWindow(window, manual.root)
+            assert shown('每次更新，只走这条流程')
+            assert manual.ready_export() is not None and manual.ready_apple_export() is not None
+            assert 'bookmark_ack' not in manual.state()
+            ui.dispose()
+            window, ui = None, None
+            report['manual_json_reopen_without_bookmark_ack'] = True
             window = tk.Tk()
             window.withdraw()
             ui = AssistantWindow(window, root)
@@ -179,8 +221,33 @@ def self_test(report_path):
             window.update_idletasks()
             ui.show_diagnostics()
             window.update_idletasks()
+            if sys.platform == 'darwin':
+                for command in ('::tk::mac::Quit', '::tk::mac::ReopenApplication', 'tkAboutDialog'):
+                    assert window.tk.call('info', 'commands', command)
+                window.tk.call('::tk::mac::Quit')
+                assert ui.disposed
+                report['mac_safe_quit_registered'] = True
             ui.dispose()
             window, ui = None, None
+            from platform_support import select_data_root
+            from core import DataError
+            recovery_base = root / 'recovery-check'
+            recovery_base.mkdir()
+            prefs = recovery_base / 'preferences.json'
+            for content in ('[]', json.dumps({'data_root': str(root / 'missing-disk')})):
+                prefs.write_text(content, encoding='utf-8')
+                selected, issue = select_data_root(recovery_base)
+                assert issue
+                blocked = DesktopService(selected, recovery_issue=issue, diagnostics_root=recovery_base)
+                try:
+                    blocked.run(export_only=True)
+                    raise AssertionError('目录恢复之前允许写入')
+                except DataError:
+                    pass
+                assert not (selected / 'config.local.json').exists()
+                assert prefs.read_text(encoding='utf-8') == content
+            assert not (root / 'missing-disk').exists()
+            report['unavailable_data_root_blocked'] = True
             report.update(status='PASS', checks=['bundled resources', 'first-run and interrupted onboarding startup',
                 'existing JSON recovery offered on reopened setup',
                 'completed capture opens update home', 'local import and WakeUp CSV',
@@ -190,10 +257,23 @@ def self_test(report_path):
                 data_outside_bundle=not str(root).startswith(str(getattr(sys, '_MEIPASS', '__not_frozen__'))),
                 gui_os='Windows' if os.name == 'nt' else os.name)
             if getattr(sys, 'frozen', False):
-                bundle = Path(sys._MEIPASS).resolve()
+                import PIL
+                import _tkinter
+                bundle = dependency_bundle_root(sys._MEIPASS)
                 report['dependency_paths_in_bundle'] = all(Path(m.__file__).resolve().is_relative_to(bundle)
-                                                          for m in (icalendar, tzdata, tk))
+                                                          for m in (icalendar, tzdata, tk, PIL, _tkinter))
+                assert report['dependency_paths_in_bundle'], '依赖没有完整包含在程序包中'
+                if sys.platform == 'darwin':
+                    import plistlib
+                    from platform_support import MAC_PACKAGE_LABEL
+                    info = plistlib.loads((Path(sys.executable).parent.parent / 'Info.plist').read_bytes())
+                    assert info['CFBundleShortVersionString'] == '1.0.0'
+                    assert info['CFBundleVersion'] == '12.0'
+                    assert info['LSMinimumSystemVersion'] == '11.0'
+                    assert MAC_PACKAGE_LABEL in info['NSAboutPanelOptionVersion']
+                    report['mac_bundle_metadata'] = True
     except Exception as error:
+        report['status'] = 'FAIL'
         report['error_type'] = type(error).__name__
         import traceback
         report['error_frames'] = [{'file': Path(frame.filename).name, 'function': frame.name, 'line': frame.lineno}

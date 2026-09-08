@@ -2,17 +2,19 @@
 
 **双击一个软件，把本人的教务课表导入 iPhone 的 WakeUp 或自带日历。**
 
-学生版面向 Windows 64 位电脑，不需要安装 Python、使用命令行或修改配置文件。使用平时登录教务的浏览器，适用于上海交通大学医学院本科教务系统 jwstu.shsmu.edu.cn。
+学生版面向 Windows x64 和 Apple 芯片（M 系列）Mac，不需要安装 Python、使用命令行或修改配置文件。使用平时登录教务的浏览器，适用于上海交通大学医学院本科教务系统 jwstu.shsmu.edu.cn。
 
-**[点击下载 Windows 完整软件包](https://github.com/lhwen686/shsmu-schedule-sync/releases/download/v1.0.0-rc11/SHSMU-Schedule-Assistant-1.0.0-rc11-Windows-x64.zip)**。下载后右键选择“全部解压缩”，里面就是中文命名的软件和使用说明。单独下载软件或查看图文说明，请到 [下载页](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc11)。
+同一个双平台包内含 Windows EXE、独立 Mac APP 和统一使用说明。Mac 首次打开与升级见 [Mac 使用说明](MACOS.md)。
 
-当前为 **1.0.0-rc11 候选版**，包含 rc10 的累计课表修复，并新增自动执行记录及“导出排错日志”。自动检查与实机验收分开记录，尚未完成的环节见 [学生版验收](STUDENT_ACCEPTANCE.md)。原命令行工具继续可用，安装与维护命令见 [维护说明](MAINTENANCE.md)。
+**[点击下载 Windows + Mac 完整软件包](https://github.com/lhwen686/shsmu-schedule-sync/releases/download/v1.0.0-rc12/SHSMU-Schedule-Assistant-1.0.0-rc12-Windows-x64-Mac-arm64.zip)**。完整解压后，Windows 用户打开 `Windows` 文件夹中的 EXE，Mac 用户打开 `Mac` 文件夹中的 APP。单独平台包、使用说明和 SHA-256 校验值见 [下载页](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc12)。
 
-**更新后请按引导手动替换一次书签**，新版采集面板显示 `2026-09-07.10`，才能记录浏览器请求过程。已有旧 JSON 仍可直接处理，但无法补回当时没有记录的浏览器日志。
+当前为 **1.0.0-rc12 候选版**：Windows 与 Mac 共用 `.12` 采集面板，标题、中文学期、进度和按钮分区，版本移到底部；同时包含 Safari 引导和此前 Mac 的目录恢复、Finder、退出与窗口修复。自动检查与实机验收分开记录，尚未完成的环节见 [学生版验收](STUDENT_ACCEPTANCE.md#acceptance-rc12)。原命令行工具继续可用，安装与维护命令见 [维护说明](MAINTENANCE.md)。
+
+**更新软件后，请在实际采集的浏览器里手动替换一次书签**。两端生成的采集面板底部均应显示 `2026-09-08.12`；更新 APP/EXE 不会自动修改已保存的浏览器书签。已有旧 JSON 仍可直接处理，但无法补回当时没有记录的浏览器日志。升级前退出旧助手，保留原课表保存目录及全部历史。
 
 ## 第一次使用
 
-1. 下载上方完整 ZIP 包，右键选择“全部解压缩”，再双击其中的 **医学院课表助手.exe**。如果选择单独下载 EXE，直接双击该文件即可。
+1. 下载上方完整 ZIP 包并完整解压。Windows 双击 `Windows/医学院课表助手.exe`；Mac 将 `Mac/医学院课表助手.app` 拖入“应用程序”后打开。
 2. 选择要导入的学期，**不用填写哪天结课**。当前默认 2026–2027 学年第 1 学期，助手按学校校历准备采集范围，并包含下学期开学前的寒假；实际有课到哪天由本人教务课表确定。
 3. 点 **复制安装页地址**，在平时登录教务的浏览器地址栏粘贴并回车。安装页会先检查基础功能；按图示把绿色“同步医学院课表”按钮拖到书签或收藏夹栏，再回助手点 **我已添加课表按钮**。
 
@@ -68,7 +70,7 @@ Edge 叫“收藏夹栏”，Chrome 叫“书签栏”，Firefox 叫“书签工
 
 这是浏览器采集的中间文件，还需要交给电脑上的助手处理。
 
-1. 打开 **医学院课表助手.exe**，点 **遇到问题 → 文件已经下载**；新版首次书签引导页和首页也有 **文件已经下载**。
+1. 打开 **医学院课表助手**，点 **遇到问题 → 文件已经下载**；新版首次书签引导页和首页也有 **文件已经下载**。
 2. 选择刚刚下载的 **shsmu-capture-…json**，等待助手核对并生成文件。不用重新采集，也不要改扩展名。
 3. 点 **导出 WakeUp 文件** 获取 **wakeup.csv**，或 **导出苹果日历** 获取 **calendar.ics**，按上面的手机步骤导入。
 
@@ -95,6 +97,7 @@ Edge 叫“收藏夹栏”，Chrome 叫“书签栏”，Firefox 叫“书签工
 | 浏览器 | 当前适配与验证范围 |
 | --- | --- |
 | Edge、Chrome、Firefox 的现代版本 | 已提供通用安装指引、基础功能检查和有超时保护的读取方式；本版学校实采均待验证。Chrome 的旧版真实采集记录不能替代本版验收 |
+| Mac Safari | 提供个人收藏栏安装、编辑地址、下载恢复指引及浏览器诊断识别；`.11` 已验证本机短/全范围及重复采集，`.12` 的界面已本地预览，尚未重复学校实采。历史证据见 [Safari 验收](STUDENT_ACCEPTANCE.md#acceptance-safari)，使用见 [Mac 说明](MACOS.md#safari-课表按钮) |
 | QQ、360、搜狗等独立浏览器 | 先看安装页检查结果，仍需按具体版本实测；仅凭同一内核不能保证成功 |
 | IE / IE 兼容模式、微信或 QQ 聊天内嵌网页 | 不在支持范围，请使用独立的现代浏览器普通窗口 |
 
@@ -104,7 +107,7 @@ Edge 叫“收藏夹栏”，Chrome 叫“书签栏”，Firefox 叫“书签工
 
 ## 文件与隐私
 
-独立 EXE 默认把个人数据保存在当前 Windows 用户的 **%LOCALAPPDATA%/SHSMUScheduleAssistant**，与 EXE 分开；移动或更新 EXE 不会重建历史。也可主动选择原项目或独立空目录。
+Windows 默认把个人数据保存在 **%LOCALAPPDATA%/SHSMUScheduleAssistant**，Mac 使用 **~/Library/Application Support/SHSMUScheduleAssistant**，均与程序分开；移动或更新软件不会重建历史。曾主动选择其他保存位置时，继续使用原目录。
 
 学生助手只在本地处理，不上传课表，不保存教务密码、Cookie 或会话存储。原项目已有的 WebCal 设置仍供命令行版使用，桌面版不触发上传。
 
