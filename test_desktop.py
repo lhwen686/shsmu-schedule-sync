@@ -768,6 +768,7 @@ class DesktopWidgetTests(unittest.TestCase):
         capture = write_capture(Path(self.temp.name), config=self.ui.service.config())
         before = capture.read_bytes()
         bookmark_ack = self.ui.service.state()['bookmark_ack']
+        self.ui.dispose()
         window = tk.Tk()
         window.withdraw()
         reopened = AssistantWindow(window, Path(self.temp.name))
@@ -777,10 +778,20 @@ class DesktopWidgetTests(unittest.TestCase):
             with patch('desktop.filedialog.askopenfilename', return_value=str(capture)), \
                     patch('desktop_service.wait_capture', side_effect=AssertionError('must use selected JSON')):
                 self.buttons(reopened)['文件已经下载'].invoke()
-                deadline = time.monotonic() + 5
-                while reopened.running and time.monotonic() < deadline:
-                    window.update()
-                    time.sleep(0.02)
+                # Use the application's normal event loop, with a Tk deadline.
+                # Nested update() may never drain Aqua Tk 8.6's native events.
+                def finish_when_ready():
+                    if not reopened.running:
+                        window.quit()
+                    else:
+                        completion[0] = window.after(20, finish_when_ready)
+                completion = [window.after(20, finish_when_ready)]
+                deadline = window.after(5000, window.quit)
+                try:
+                    window.mainloop()
+                finally:
+                    window.after_cancel(completion[0])
+                    window.after_cancel(deadline)
             self.assertFalse(reopened.running)
             self.assertIsNotNone(reopened.service.ready_export())
             self.assertIsNotNone(reopened.service.ready_apple_export())
