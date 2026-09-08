@@ -14,6 +14,8 @@
 本机新 Mac APP 已通过隔离冻结程序自检（PATH 无 Python、依赖位于包内），独立 ZIP 在中文及空格路径重新解压后，严格深度签名结构检查和冻结程序自检再次通过。生成书签长度 54857，SHA-256 `01b838f324f0ca6999f56f729ab4f5ffa1ed2ce9b2ad215d503adaf8a3d211fb`。
 发布前 27 项源码/测试/说明/工作流白名单检查通过；990 个个人及旧交付文件未变，6 个 CMD 的工作区和 Git blob 均保持 CRLF，说明配图与既有公开版本相同。远端树与已审查的本机暂存内容逐字节一致。
 首次云端运行 `34256671110` 在 setup-python 阶段失败：官方清单的 Python 3.12.14 仅有 Linux/RHEL 预编译包，Windows 与 Mac 均未进入项目检查或发布。根据官方 versions-manifest 核对，云端构建固定改为两端均提供的 Python 3.12.10；本机 3.12.14 结果保留原归属。
+发布前用隔离 checkout 复现 Windows 的 core.autocrlf=true 会转换 requirements、config、spec 与 HTML 的字节；从首次成功 Windows EXE 组件回读确认有 5 个构建输入因换行而与本机不同。发布工作流对临时 runner 的 Git 子进程显式关闭自动转换；保留仓库 `.gitattributes` 和 CMD 原始 CRLF，不改变用户电脑的 Git 设置。
+云端 Mac/Tk 8.6 检查在原生窗口用例停滞，首次 Windows 源码完整检查、EXE 构建及包内 `.12` 自检已通过。统一检查入口增加 180 秒限时堆栈诊断，保留失败运行记录并继续定位，不跳过卡住的用例或放宽发布门禁。
 双平台 CI 与最终附件回下载正在执行，完成结果将在本节补记。个人数据、配置、原始响应和本机证据保留本机，没有重新采集学校或操作个人日历。
 审查方式：维护助手阅读最终差异并执行白名单、敏感内容、CMD CRLF 和保护文件哈希检查；独立第二审查者 NOT RUN。
 实机边界见 [rc12 验收](STUDENT_ACCEPTANCE.md#acceptance-rc12)。此前 Safari `.11` 及旧包的学校或本人确认不转记到 rc12。

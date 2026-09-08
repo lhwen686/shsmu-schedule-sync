@@ -7,6 +7,13 @@ on:
 permissions:
   contents: read
 
+# Keep build inputs byte-identical on both runners. CMD blobs retain their
+# existing CRLF through the repository's explicit -text attribute.
+env:
+  GIT_CONFIG_COUNT: '1'
+  GIT_CONFIG_KEY_0: core.autocrlf
+  GIT_CONFIG_VALUE_0: 'false'
+
 concurrency:
   group: desktop-rc12-release
   cancel-in-progress: false
