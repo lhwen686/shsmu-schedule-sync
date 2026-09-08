@@ -50,6 +50,9 @@ const html=await fs.readFile(new URL('./chrome-bookmark.html',import.meta.url),'
 const href=html.match(/class="bookmark" href="([^"]+)"/)[1].replaceAll('&amp;','&').replaceAll('&#x27;',"'");
 const script=decodeURIComponent(href.slice('javascript:'.length));
 new vm.Script(script);
+function descendants(element) {
+  return element.children.flatMap(child => [child, ...descendants(child)]);
+}
 async function executeBookmark(contentType, malformed=false, redirect=false, resume=false, wrongPage=false, changeAccount=false, emptyDetails=false, options={}) {
 const blobs=[],panels=[],calls=[],alerts=[];
 let failures=resume?3:0;
@@ -57,9 +60,10 @@ let downloadBlocked=options.blockDownload;
 function element() {
   let value='';
   return {dataset:{},style:{},children:[],download:'',
-    get textContent(){return value;},
+    get textContent(){return value + this.children.map(child=>child.textContent).join('');},
     set textContent(text){value=text;this.children=[];},
     append(child){this.children.push(child);},
+    setAttribute(name,value){this[name]=value;},
     click(){return this.onclick?.();},remove(){}};
 }
 class TestURL extends URL {static createObjectURL(b){if(downloadBlocked){downloadBlocked=false;throw new Error('synthetic download failure');}blobs.push(b);return 'blob:test';} static revokeObjectURL(){}}
@@ -78,6 +82,7 @@ const sandbox={location:{origin:'https://jwstu.shsmu.edu.cn',pathname:wrongPage?
   }
 };
 sandbox.window=sandbox;
+if(options.userAgent)sandbox.navigator={userAgent:options.userAgent};
 if(options.xhrOnly) {
   const send=sandbox.fetch;
   sandbox.fetch=undefined;
@@ -120,13 +125,13 @@ if(options.blockDownload) {
   assert.equal(blobs.length,0);
   assert.match(panels[0].textContent,/下载未能发起/);
   const count=calls.length;
-  await panels[0].children.find(child=>child.textContent==='重新下载采集文件').click();
+  await descendants(panels[0]).find(child=>child.textContent==='重新下载采集文件').click();
   assert.equal(calls.length,count,'retry download must not contact school');
 }
 if(wrongPage) {
   assert.equal(calls.length,0,'guide to the normal homepage without subrequesting it');
   assert.equal(blobs.length,0);
-  assert(panels[0].children.some(child=>child.href==='https://jwstu.shsmu.edu.cn/Home'));
+  assert(descendants(panels[0]).some(child=>child.href==='https://jwstu.shsmu.edu.cn/Home'));
   return;
 }
 if(malformed||redirect||resume||emptyDetails) {
@@ -145,14 +150,14 @@ if(malformed||redirect||resume||emptyDetails) {
     assert.equal(pseudonyms[1]-pseudonyms[0],1);
     assert.notEqual(pseudonyms[0],21);
     assert.equal(diagnostic.failure.request.attempt,3);
-    const retry=panels[0].children.find(child=>child.textContent==='继续采集');
+    const retry=descendants(panels[0]).find(child=>child.textContent==='继续采集');
     assert(retry);
     if(changeAccount)sandbox.document.body.innerText='学号： 000000000002\n我的课表';
     await retry.click();
     assert.equal(calls.filter(call=>call.path==='/Home/GetCurriculumTable').length,changeAccount?10:5,'resume must retain completed months only for the same account');
     assert.equal(calls.filter(call=>call.params.MCSID==='11,12').length,changeAccount?2:1,'account changes must discard previously completed details');
   } else {
-    assert(!panels[0].children.some(child=>child.textContent==='继续采集'),'authentication or schema failures must not offer cached resume');
+    assert(!descendants(panels[0]).some(child=>child.textContent==='继续采集'),'authentication or schema failures must not offer cached resume');
     return;
   }
 }
@@ -160,11 +165,16 @@ assert.equal(blobs.length,resume?2:1,panels[0]?.textContent);
 const downloaded=JSON.parse(await blobs[blobs.length-1].text());
 assert.equal(downloaded.format,'shsmu-capture-v1');
 assert.equal(downloaded.complete,true);
-assert.equal(downloaded.collector_revision,'2026-09-07.10');
+assert.equal(downloaded.collector_revision,'2026-09-08.12');
 assert(downloaded.diagnostics.request_log.length > 0);
 assert(downloaded.diagnostics.request_log.every(entry => typeof entry.recorded_at === 'string'));
 assert(downloaded.diagnostics.request_log.filter(entry => entry.state==='success').every(entry => entry.duration_ms >= 0));
 assert.equal(downloaded.diagnostics.download_observed,false);
+if(options.browser) {
+  assert.equal(downloaded.diagnostics.browser,options.browser);
+  assert.equal(browserDiagnostic({diagnostics:downloaded.diagnostics}).diagnostics.browser,options.browser);
+  assert(!JSON.stringify(downloaded).includes(options.userAgent),'never retain the full user agent');
+}
 if(!options.blockDownload) {
   assert.match(panels[0].textContent,/JSON.*下载/);
   assert.match(panels[0].textContent,/文件已经下载/);
@@ -177,12 +187,12 @@ assert.equal(calls.filter(call=>call.path==='/Home').length,0,'identity must com
 assert(!JSON.stringify(downloaded).includes('must-be-omitted'));
 if(options.repeatDownload) {
   const count=calls.length;
-  const retry=panels[0].children.find(child=>child.textContent==='重新下载采集文件');
+  const retry=descendants(panels[0]).find(child=>child.textContent==='重新下载采集文件');
   assert(retry);
   await retry.click();
   assert.equal(await blobs.at(-1).text(),await blobs.at(-2).text(),'same capture and fetched_at, not a new sync');
   assert.equal(calls.length,count);
-  await panels[0].children.find(child=>child.textContent==='关闭提示').click();
+  await descendants(panels[0]).find(child=>child.textContent==='关闭提示').click();
   const blobCount=blobs.length;
   await retry.click();
   assert.equal(blobs.length,blobCount,'closing panel discards retained capture');
@@ -200,6 +210,13 @@ assert.match(shared.responses[0].response[0].Content, /^<div>[^<]+<br>[^<]+<\/di
 assert.equal(shared.responses[0].params.MCSID.replace(/,/g,'|'),
   shared.responses[0].response[0].CurriculumScheduleIDs.match(/\d+/g).join('|'));
 for(const contentType of ['application/json','text/html; charset=utf-8','text/plain','']) downloaded=await executeBookmark(contentType);
+for(const [browser,userAgent] of [
+  ['Safari','Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15'],
+  ['Chrome','Mozilla/5.0 Chrome/140.0.0.0 Safari/537.36'],
+  ['Edge','Mozilla/5.0 Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0'],
+  ['Firefox','Mozilla/5.0 Firefox/142.0'],
+  ['unknown','Unrecognized/1.0']
+]) await executeBookmark('application/json',false,false,false,false,false,false,{browser,userAgent,repeatDownload:true});
 await executeBookmark('text/html',true);
 await executeBookmark('application/json',false,false,false,false,false,true);
 await executeBookmark('text/html',false,true);

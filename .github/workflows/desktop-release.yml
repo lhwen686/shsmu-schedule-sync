@@ -1,0 +1,112 @@
+name: Build and publish rc12 desktop packages
+
+on:
+  push:
+    branches: ['codex/release-rc12']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-rc12-release
+  cancel-in-progress: false
+
+jobs:
+  native:
+    name: Native checks and package (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            runner: windows-latest
+          - platform: macos
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12.14'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - name: Install pinned build dependencies
+        run: python -m pip install -r requirements-build.txt
+      - name: Complete Python, JavaScript and applicable CMD checks
+        run: python -X utf8 check.py
+      - name: Build native application from this commit
+        run: python -X utf8 build_desktop.py --output-dir dist/native --work-dir build/native
+      - name: Check frozen runtime, generated bookmark and relocation
+        run: python -X utf8 .github/native_package_check.py
+      - name: Upload verified native component
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.platform }}-rc12
+          path: dist/upload/
+          if-no-files-found: error
+          retention-days: 14
+
+  assemble:
+    name: Verify identical sources and assemble downloads
+    needs: native
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12.14'
+      - run: python -m pip install -r requirements.txt
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-rc12
+          path: artifacts/windows
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: macos-rc12
+          path: artifacts/macos
+      - name: Compare source manifests and bookmark bytes, create ZIPs and checksums
+        run: python -X utf8 .github/assemble_release.py
+      - name: Upload reviewed release assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rc12-release-assets
+          path: dist/release/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish new candidate after both native checks pass
+    needs: assemble
+    if: github.repository == 'lhwen686/shsmu-schedule-sync' && github.ref == 'refs/heads/codex/release-rc12'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rc12-release-assets
+          path: release-assets
+      - name: Verify every downloaded asset
+        working-directory: release-assets
+        run: sha256sum --check SHA256SUMS.txt
+      - name: Create a new prerelease without replacing old attachments
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          gh release create v1.0.0-rc12 release-assets/* \
+            --target "$RELEASE_COMMIT" --prerelease \
+            --title "医学院课表助手 rc12 · Windows 与 Mac 同步更新" \
+            --notes-file RELEASE_NOTES.md

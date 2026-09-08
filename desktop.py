@@ -10,6 +10,9 @@ import json
 import os
 import queue
 import subprocess
+import sys
+import time
+import uuid
 import tkinter as tk
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -22,7 +25,8 @@ from core import DataError
 from desktop_service import (APP_VERSION, HOME_URL, DesktopJob, DesktopService,
                              default_data_root, explain_error, student_term_config, term_key)
 from prepare import downloads_folder
-from platform_support import bookmark_shortcut, reveal_command, scroll_units, ui_font_family
+from platform_support import (MAC_PACKAGE_LABEL, bookmark_shortcut, reveal_command,
+                              scroll_units, ui_font_family, select_data_root)
 from sync import atomic_write, capture_folder, json_bytes, load_current, load_settings
 from wakeup import load_slot_times, slot_times
 
@@ -62,7 +66,7 @@ def reveal_file(path):
     if not path.is_file():
         raise DataError('导入文件已经移动，请重新生成导入文件。')
     # Argument list, no shell, no CSV association (which might open a spreadsheet).
-    subprocess.Popen(reveal_command(path))
+    return subprocess.Popen(reveal_command(path))
 
 
 class AssistantWindow:
@@ -70,21 +74,15 @@ class AssistantWindow:
         self.window = window
         self.base = default_data_root()
         self.preference_path = self.base / 'preferences.json'
-        selected = data_root
-        missing_saved_root = False
-        if selected is None:
-            try:
-                prefs = json.loads(self.preference_path.read_text(encoding='utf-8'))
-                candidate = prefs.get('data_root')
-                if isinstance(candidate, str) and Path(candidate).is_absolute():
-                    selected = candidate
-                    missing_saved_root = not Path(candidate).is_dir()
-            except (OSError, ValueError, AttributeError):
-                pass
-        self.service = DesktopService(selected or self.base)
+        selected, self.recovery_issue = select_data_root(self.base, data_root)
+        self.service = DesktopService(selected, recovery_issue=self.recovery_issue,
+                                      diagnostics_root=self.base if self.recovery_issue else None)
         self.job = DesktopJob(self.service)
         self.running = False
         self.closing = False
+        self.disposed = False
+        self.reveal_checks = {}
+        self.mac_commands = []
         self.pending = None
         self.details = []
         self.last_result = None
@@ -101,6 +99,17 @@ class AssistantWindow:
         self.window.geometry(f'{width}x{height}')
         self.window.minsize(min(round(720 * scale), width), min(round(520 * scale), height))
         self.window.protocol('WM_DELETE_WINDOW', self.close)
+        if sys.platform == 'darwin':
+            for name, callback in (('Quit', self.close), ('ReopenApplication', self.reopen),
+                                   ('ShowPreferences', self.show_settings), ('ShowHelp', self.show_help)):
+                command = '::tk::mac::' + name
+                self.window.createcommand(command, callback)
+                self.mac_commands.append(command)
+            self.window.createcommand('tkAboutDialog', lambda: messagebox.showinfo(
+                '关于医学院课表助手', APP_VERSION + ' · ' + MAC_PACKAGE_LABEL + '\n本地课表与两种文件导出。', parent=self.window))
+            self.mac_commands.append('tkAboutDialog')
+            # Bind per toplevel: native file dialogs keep their own key handling.
+            self.window.bind('<Command-w>', lambda event: self.close_window(event.widget.winfo_toplevel()))
         self.window.report_callback_exception = lambda kind, error, tb: self.handle_error(error, 'ui_callback_failed')
         self._style()
         header = ttk.Frame(window, padding=(28, 18))
@@ -129,16 +138,39 @@ class AssistantWindow:
         self.window.bind('<MouseWheel>', self._wheel)
         self.wrapping = []
         try:
-            if missing_saved_root:
-                raise DataError('上次使用的数据目录暂时找不到，请在设置中选择原项目目录；没有新建另一份课表。')
             self.service.initialize()
             self.show_home()
         except Exception as error:
-            if missing_saved_root:
+            if isinstance(error, OSError):
+                self.recovery_issue = '课表目录暂时不可用。请检查磁盘空间与文件夹权限，然后重新选择原目录。'
+                self.service.recovery_issue = self.recovery_issue
+            if self.recovery_issue:
                 from diagnostics import DiagnosticRecorder
                 self.service.diagnostics = DiagnosticRecorder(self.base)
             self.handle_error(error, 'startup_failed')
         self.poll_id = self.window.after(100, self.poll)
+
+    def reopen(self):
+        if not self.disposed and not self.closing:
+            self.window.deiconify()
+            self.window.lift()
+
+    def close_window(self, window):
+        if window == self.window:
+            self.close()
+        else:
+            window.destroy()
+        return 'break'
+
+    def bind_dialog_close(self, dialog):
+        if sys.platform == 'darwin':
+            dialog.bind('<Command-w>', lambda event: self.close_window(dialog))
+
+    def show_recovery(self):
+        self.clear('恢复保存位置', '请先找回原课表目录', self.recovery_issue)
+        self.label('连接原磁盘或恢复文件夹权限后，选择原目录继续。也可以明确选择一个空目录新建独立课表；不会复制或重置原历史。')
+        self.button('选择原课表目录或新建独立课表', self.pick_root, primary=True)
+        self.button('导出排错日志', self.show_diagnostics)
 
     def _style(self):
         style = ttk.Style(self.window)
@@ -232,11 +264,11 @@ class AssistantWindow:
             button.configure(state='disabled')
         return button
 
-    def copy_text(self, text):
+    def copy_text(self, text, notice='已复制。请在平时登录教务的浏览器地址栏粘贴并回车。'):
         self.window.clipboard_clear()
         self.window.clipboard_append(text)
         self.window.update_idletasks()
-        self.status.set('已复制。请在平时登录教务的浏览器地址栏粘贴并回车。')
+        self.status.set(notice)
 
     def status_label(self):
         widget = ttk.Label(self.content, textvariable=self.status, style='Small.TLabel',
@@ -245,6 +277,9 @@ class AssistantWindow:
         self.wrapping.append(widget)
 
     def show_home(self):
+        if self.recovery_issue:
+            self.show_recovery()
+            return
         if self.running:
             self.show_work()
             return
@@ -319,8 +354,8 @@ class AssistantWindow:
                     self.window.after_idle(self._scroll_top)
 
             sketch.bind('<Configure>', fit_illustration)
-            self.label('图中以 Chrome 为例；Edge、Firefox 的对应栏位见下方说明。', 'Small.TLabel')
-            self.label(f'Edge 叫“收藏夹栏”，Chrome 叫“书签栏”，Firefox 叫“书签工具栏”。按 {bookmark_shortcut()} 显示。安装和登录请使用同一个浏览器。', 'Small.TLabel')
+            self.label('图中以 Chrome 为例；Safari、Edge、Firefox 的对应栏位见下方说明。', 'Small.TLabel')
+            self.label(f'Edge 叫“收藏夹栏”，Chrome 叫“书签栏”，Firefox 叫“书签工具栏”。按 {bookmark_shortcut()} 显示。Safari 选“显示 → 显示个人收藏栏”，把按钮拖入该栏。安装和登录请使用同一个浏览器。', 'Small.TLabel')
             self.button('我已添加课表按钮，进入助手', self.confirm_bookmark)
             self.label('此按钮只记录你的确认；实际采集成功后才算验证书签可用。', 'Small.TLabel')
 
@@ -334,6 +369,11 @@ class AssistantWindow:
         self.show_home()
 
     def start(self, capture=None, export_only=False):
+        if self.recovery_issue:
+            self.show_recovery()
+            return
+        if self.closing or self.disposed:
+            return
         if self.running or self.job.busy:
             return
         # Dispose unreachable Tk objects on their owning thread before the worker
@@ -358,6 +398,7 @@ class AssistantWindow:
                         '看到本人学号后，点击书签栏 / 收藏夹栏中的“同步医学院课表”，才会开始采集。')
             self.button('复制教务首页地址', lambda: self.copy_text(HOME_URL))
             self.label('点击书签后，保持学校页面和助手打开；实际采集进度请看教务网页。', 'Small.TLabel')
+            self.label('Safari 首次使用：先从教务首页打开“我的课表”，看到课程后回首页，再点击课表书签。', 'Small.TLabel')
         self.picker_button = self.button('文件已经下载', self.pick_capture, enabled=self.job.stage == 'waiting')
         if self.browser_collection:
             self.label('浏览器只会下载 shsmu-capture-…json。若这里仍在等待，点“文件已经下载”选择它，继续生成 WakeUp 和苹果日历文件。', 'Small.TLabel')
@@ -457,14 +498,65 @@ class AssistantWindow:
         if self.service.ready_export() is None:
             self.show_issue(explain_error(DataError('导入文件已过期或被移动，请重新生成导入文件。'), exporting=True))
             return
-        reveal_file(self.service.root / 'output/wakeup.csv')
+        self.locate_file(self.service.root / 'output/wakeup.csv', retry=self.reveal)
 
     def reveal_apple(self):
         if self.service.ready_apple_export() is None:
             self.show_issue(explain_error(DataError('苹果日历文件已过期或被移动，请重新生成导入文件。'),
                                           exporting=True, apple=True))
             return
-        reveal_file(self.service.root / 'output/calendar.ics')
+        self.locate_file(self.service.root / 'output/calendar.ics', retry=self.reveal_apple)
+
+    def locate_file(self, path, retry=None):
+        if self.disposed:
+            return
+        path = Path(path)
+        retry = retry or (lambda: self.locate_file(path))
+        try:
+            process = reveal_file(path)
+        except (OSError, DataError) as error:
+            self.record_error(error, 'file_location_failed')
+            self.show_location_issue(path, retry)
+            return
+        if sys.platform == 'darwin':
+            self.reveal_checks[process] = None
+            self.check_location(process, path, retry, time.monotonic() + 5)
+
+    def check_location(self, process, path, retry, deadline):
+        if self.disposed:
+            return
+        result = process.poll()
+        if result is None and time.monotonic() < deadline:
+            self.reveal_checks[process] = self.window.after(100,
+                lambda: self.check_location(process, path, retry, deadline))
+            return
+        self.reveal_checks.pop(process, None)
+        if result is None:
+            self.stop_location(process)
+        if result != 0:
+            self.service.diagnostics.event('file_location_failed', code='FILE_IO', timed_out=result is None)
+            self.show_location_issue(path, retry)
+
+    @staticmethod
+    def stop_location(process):
+        if process.poll() is None:
+            try:
+                process.kill()
+                process.wait(timeout=0.1)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+
+    def show_location_issue(self, path, retry):
+        manager = 'Finder' if sys.platform == 'darwin' else '文件资源管理器'
+        self.clear('文件位置', '文件已生成，未能打开所在位置',
+                   f'已有文件保留，无需重新采集。可以重试，或按下方路径在 {manager} 中查找文件。')
+        self.label(str(path))
+        self.button('重试打开所在位置', retry, primary=True)
+        notice = ('文件路径已复制。可在 Finder 的“前往文件夹”中粘贴。' if sys.platform == 'darwin'
+                  else '文件路径已复制。可在文件资源管理器的地址栏中粘贴。')
+        self.button('复制文件路径', lambda: self.copy_text(str(path), notice))
+        self.status_label()
+        self.button('回到首页', self.show_home)
 
     def show_phone(self):
         report = self.service.ready_export()
@@ -544,6 +636,10 @@ class AssistantWindow:
 
     def show_issue(self, issue):
         self.details.append(issue.detail)
+        self.recovery_issue = self.service.recovery_issue or self.recovery_issue
+        if self.recovery_issue:
+            self.show_recovery()
+            return
         self.clear('处理提示', issue.title, issue.next_step)
         self.button('文件已经下载', self.pick_capture)
         self.button('重新生成导入文件', lambda: self.start(export_only=True))
@@ -576,6 +672,7 @@ class AssistantWindow:
             log.begin('activity')
             records = log.records()
         dialog = tk.Toplevel(self.window)
+        self.bind_dialog_close(dialog)
         dialog.title('导出排错日志')
         dialog.geometry('720x480')
         dialog.minsize(640, 450)
@@ -611,15 +708,13 @@ class AssistantWindow:
                 messagebox.showerror('排错日志尚未导出', str(error) if isinstance(error, ValueError) else
                     '文件没有保存成功。请检查磁盘空间和文件夹权限，换一个位置重试。', parent=dialog)
                 return
-            try:
-                reveal_file(path)
-            except OSError:
-                messagebox.showinfo('排错日志已保存', '请把这个文件发给维护者：\n' + str(path), parent=dialog)
+            self.locate_file(path)
             dialog.destroy()
         ttk.Button(body, text='保存 ZIP 并打开所在位置', command=export).pack(anchor='w')
 
     def show_details(self):
         dialog = tk.Toplevel(self.window)
+        self.bind_dialog_close(dialog)
         dialog.title('处理详情')
         dialog.geometry('760x440')
         area = tk.Text(dialog, wrap='word', font=(self.font_family, 10), padx=16, pady=12)
@@ -647,6 +742,9 @@ class AssistantWindow:
                    '手机没有课程：先确认已手动导入，并切换到新导入的课表。')
 
     def pick_capture(self):
+        if getattr(self, 'recovery_issue', None):
+            self.show_recovery()
+            return
         if self.running and self.job.stage != 'waiting':
             self.status.set('正在核对或保存课表，请等待本次处理结束。')
             return
@@ -672,6 +770,9 @@ class AssistantWindow:
             self.job.picker_open.clear()
 
     def pick_downloads(self):
+        if self.recovery_issue:
+            self.show_recovery()
+            return
         if self.running and self.job.stage != 'waiting':
             return
         self.job.picker_open.set()
@@ -699,6 +800,12 @@ class AssistantWindow:
         if not selected:
             return
         candidate = DesktopService(selected)
+        # Validate before initialize() can create configuration or diagnostics.
+        if (candidate.root / 'data/schedule.json').exists() and not (candidate.root / 'data/current.json').is_file():
+            raise DataError('原数据目录缺少完整版本索引，请保留目录并恢复索引，不要新建历史。')
+        load_current(candidate.root)
+        if candidate.config_path.is_file():
+            candidate.config()
         if not candidate.config_path.is_file() and not (candidate.root / 'data/current.json').is_file():
             if any(candidate.root.iterdir()):
                 log = self.service.diagnostics
@@ -712,14 +819,26 @@ class AssistantWindow:
         candidate.initialize()
         # Validate history before switching; never migrate it or reset identities.
         load_current(candidate.root)
+        if self.recovery_issue:
+            try:
+                original = self.preference_path.read_bytes()
+            except FileNotFoundError:
+                original = None
+            if original is not None:
+                backup = self.preference_path.with_name('preferences.recovery-' + uuid.uuid4().hex + '.json')
+                atomic_write(backup, original)
         atomic_write(self.preference_path, json_bytes({'data_root': str(candidate.root)}))
         self.service.diagnostics.event('data_directory_left')
         candidate.diagnostics.event('data_directory_selected')
         self.service, self.job = candidate, DesktopJob(candidate)
+        self.recovery_issue = None
         self.last_result = None
         self.show_home()
 
     def show_settings(self):
+        if self.recovery_issue:
+            self.show_recovery()
+            return
         if self.running:
             return
         self.clear('设置 · 不需要修改配置文件', '学期、作息和保存位置')
@@ -804,19 +923,33 @@ class AssistantWindow:
         self.button('保存设置', save, primary=True)
 
     def close(self):
+        if self.disposed or self.closing:
+            return
         if self.running:
             self.closing = True
+            self.pending = None
             self.job.cancel()
             self.status.set('正在安全结束；保存已经开始时会等待它完成。')
         else:
             self.dispose()
 
     def dispose(self):
+        if self.disposed:
+            return
+        self.disposed = True
         self.service.diagnostics.event('window_closed')
+        for process, callback in self.reveal_checks.items():
+            if callback:
+                self.window.after_cancel(callback)
+            self.stop_location(process)
+        self.reveal_checks.clear()
         if self.poll_id:
             self.window.after_cancel(self.poll_id)
             self.poll_id = None
         self.window.update_idletasks()
+        for command in self.mac_commands:
+            self.window.deletecommand(command)
+        self.mac_commands = []
         self.window.destroy()
         self.window.report_callback_exception = None
         self.status = None

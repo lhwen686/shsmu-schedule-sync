@@ -24,6 +24,10 @@ from wakeup import build_export
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_safari_diagnostic_label_survives_redaction(self):
+        self.assertEqual(Redactor().clean({'diagnostics': {'browser': 'Safari'}}),
+                         {'diagnostics': {'browser': 'Safari'}})
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='诊断测试 ')
         self.addCleanup(self.temp.cleanup)
