@@ -16,7 +16,26 @@
 首次云端运行 `34256671110` 在 setup-python 阶段失败：官方清单的 Python 3.12.14 仅有 Linux/RHEL 预编译包，Windows 与 Mac 均未进入项目检查或发布。根据官方 versions-manifest 核对，云端构建固定改为两端均提供的 Python 3.12.10；本机 3.12.14 结果保留原归属。
 发布前用隔离 checkout 复现 Windows 的换行转换；两次 Windows EXE 组件回读均确认 requirements、config、spec 与 HTML 共 5 个输入因换行而与本机不同。仅关闭 autocrlf 仍会让 text=auto 使用平台默认 eol，故发布工作流对临时 runner 的 Git 子进程同时指定 core.autocrlf=false 和 core.eol=lf；保留仓库 `.gitattributes` 和 CMD 的 -text 原始 CRLF，不改变用户电脑的 Git 设置。
 云端 Mac/Tk 8.6 检查在原生窗口用例停滞，首次 Windows 源码完整检查、EXE 构建及包内 `.12` 自检已通过。统一检查入口增加 180 秒限时堆栈诊断；运行 `34258231428` 定位到 `test_reopened_setup_imports_existing_json_and_exposes_both_exports` 的 `window.update()`，堆栈显示处理线程已结束、主线程仍在 Tk 的全队列处理。测试现先关闭旧窗口，再用与应用一致的 mainloop 和 Tk 定时器执行重开验证，保留 5 秒期限与所有导入、双导出、书签确认及历史断言；不跳过用例或放宽发布门禁。中间逐事件尝试的本机断言失败亦保留在本机证据中。
-双平台 CI 与最终附件回下载正在执行，完成结果将在本节补记。个人数据、配置、原始响应和本机证据保留本机，没有重新采集学校或操作个人日历。
+最终 [原生构建/合包/发布 34259584284](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/34259584284) 四个 job 全部 PASS；发布源码 `91fd600adf3ac263c76e9bb7667211ff5d4bbd1c`。
+Windows Server 2025 / Python 3.12.10：187 项 Python 中 181 通过、6 项 Mac 专用用例跳过，真实 CMD、三组 JS、EXE 冻结运行时与生成书签自检通过。
+macOS 15 arm64 / Python 3.12.10：187 项 Python 中 186 通过、1 项 Windows CMD 跳过，三组 JS、原生 APP 构建、包内自检、中文空格路径重解压及严格深度签名结构检查通过。
+同一提交的 [Windows push 检查](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/34259584255) 与 [PR 检查](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/34259590609) 也通过。
+
+[rc12 预发布](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc12) 包含双平台 ZIP、两个单平台 ZIP、User-Guide.html、build-verification.json 和 SHA256SUMS.txt。
+六个附件回下载后核对 SHA-256、ZIP CRC、平台清单、所有构建源码、1046 个 Mac 文件及 54 个符号链接，Windows PE x64 及 EXE 内嵌 browser_ui.mjs 与源码完全一致。
+统一源码指纹为 `098cbc1c5345bdf92ea6fa06183983918be2e8814402cbfbceb7f481e393cb77`；两端实际生成的 `.12` 书签长度及哈希与上方本机记录完全一致。
+最终 CI Mac ZIP 在本机 macOS 26.6.2 arm64 的独立中文/空格路径重新解压，严格深度签名结构检查及 PATH 无 Python 的冻结程序自检再次 PASS，使用临时合成数据，不触碰原课表目录。
+
+首次上传时 GitHub 将外置中文使用说明规范化为 default.html，导致校验清单中的文件名无法直接匹配。已将该附件改名为 User-Guide.html，仅替换对应 SHA256SUMS.txt；说明内容和三个软件 ZIP 字节未变，旧版本附件未动。修正后的六个公开附件已再次回读通过。合包脚本改用 ASCII 外置附件名，ZIP 内中文说明名保持，发布工作流新增上传后附件名称与全部字节回下载核对。用最终原生附件回放修改后的合包脚本，外置名称、校验清单和全部 ZIP 条目内容核对通过；工作流 YAML 与 Python 语法检查通过。
+
+| 公开软件附件 | SHA-256 |
+| --- | --- |
+| Windows x64 + Mac arm64 | `d311e613a79a30b9bcf7608454fe4f77fa511df61cc08748c95ba8ef18bf9fb1` |
+| Windows x64 | `a9f3ced7c8574bb03f077a0040ef417d2fc9088f4b4c4078022af8fbe3e4efcd` |
+| Mac arm64 | `77750a4dd129eeb1b38b011ecfecb18d859c493163a9b45d52998ef532ceaab7` |
+
+[PR #3](https://github.com/lhwen686/shsmu-schedule-sync/pull/3) 已合入 main，合并提交 `af3c9cd0d9cdcd6925cf45835a9e78e9f052241f`。发布标签保持指向原生构建源码，后续交付记录与附件命名/回读门禁修正不改动软件构建输入。
+个人数据、配置、原始响应和本机证据保留本机，没有重新采集学校或操作个人日历。
 审查方式：维护助手阅读最终差异并执行白名单、敏感内容、CMD CRLF 和保护文件哈希检查；独立第二审查者 NOT RUN。
 实机边界见 [rc12 验收](STUDENT_ACCEPTANCE.md#acceptance-rc12)。此前 Safari `.11` 及旧包的学校或本人确认不转记到 rc12。
 回滚依据：保留旧 Windows/Mac 交付 ZIP 和改前源码备份，使用新的版本号与新附件；源码恢复用反向提交，不重写公开历史，不重置个人 UID 或数据目录。

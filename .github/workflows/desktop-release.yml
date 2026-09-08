@@ -119,3 +119,18 @@ jobs:
             --target "$RELEASE_COMMIT" --prerelease \
             --title "医学院课表助手 rc12 · Windows 与 Mac 同步更新" \
             --notes-file RELEASE_NOTES.md
+      - name: Verify published asset names and exact bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release download v1.0.0-rc12 --dir published-assets
+          python - <<'PY'
+          from pathlib import Path
+          expected = Path('release-assets')
+          downloaded = Path('published-assets')
+          assert {p.name for p in expected.iterdir()} == {p.name for p in downloaded.iterdir()}
+          for path in expected.iterdir():
+              assert path.read_bytes() == (downloaded / path.name).read_bytes(), path.name
+          print('PASS: all published names and bytes match the reviewed assets')
+          PY

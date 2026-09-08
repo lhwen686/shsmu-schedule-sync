@@ -36,7 +36,7 @@ def main():
         archive.writestr('请先阅读.txt',
             '完整解压 ZIP，再打开 Windows 文件夹中的医学院课表助手.exe。无需另装 Python。\n'
             '更新前退出旧助手并保留原课表目录。更新后请在实际采集的浏览器中手动替换旧书签，版本应为 2026-09-08.12。\n')
-    shutil.copy2(ROOT / '使用说明.html', output / '使用说明.html')
+    shutil.copy2(ROOT / '使用说明.html', output / 'User-Guide.html')
     manifest = json.loads((windows / 'build-manifest.json').read_text(encoding='utf-8'))
     evidence = {'app_version': APP_VERSION, 'collector_revision': '2026-09-08.12',
                 'source_fingerprint': manifest['source_fingerprint'],

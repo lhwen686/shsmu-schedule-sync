@@ -2,13 +2,17 @@
 
 更新：2026-09-09。默认只读本页，再按 [维护索引](MAINTENANCE.md#task-map) 选择资料。学生使用见 [README](README.md)，实机验收见 [STUDENT_ACCEPTANCE](STUDENT_ACCEPTANCE.md)。
 
+<a id="baseline"></a>
 ## rc12 双平台同步与发布
 
 Windows x64 与 Apple 芯片 Mac 使用同一份源码及 `2026-09-08.12` 采集面板。
 应用版本统一为 `1.0.0-rc12`；Mac 为修订 6、构建号 `12.0`。
 发布流程分别执行两端完整检查、原生构建、冻结程序自检和实际生成的书签校验，
 再核对源码指纹与书签地址一致性，生成双平台 ZIP、单平台 ZIP、使用说明及 SHA-256。
-当前正在完成发布门禁，具体结果见 [rc12 记录](VERIFICATION.md#release-rc12)。
+[rc12 预发布](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc12)已发布，源码经 [PR #3](https://github.com/lhwen686/shsmu-schedule-sync/pull/3) 合入 main。
+Windows 与 Mac 原生检查、合包、六个公开附件回下载及最终 Mac ZIP 本机隔离自检均通过；
+发布源码为 `91fd600adf3ac263c76e9bb7667211ff5d4bbd1c`，后续提交仅补充交付记录和附件命名/回读门禁。
+具体结果见 [rc12 记录](VERIFICATION.md#release-rc12)。
 个人数据、配置、学校原始响应和本机证据不上传。
 
 更新 APP/EXE 不会自动修改浏览器中已有的书签，需在实际采集的浏览器中手动替换；
@@ -45,8 +49,7 @@ Safari 26.6.2 已完成 17 次短范围、128 次全学期、27 张网页卡片�
 详见 [Safari 验收](STUDENT_ACCEPTANCE.md#acceptance-safari)。本轮未重打包 APP、提交或发布，
 保留 Mac 修订 4 ZIP；旧 Mac 修订 4 源码服务也已验证能导入 `.11` JSON 并得到相同双导出。
 
-<a id="baseline"></a>
-## 本地 Mac 修订 4
+## 历史：本地 Mac 修订 4
 
 当前工作分支为 `codex/dual-platform-package-local`，在保留原有未提交修改的基础上，
 按用户授权修复 Mac 启动位置恢复、安全退出、Finder 反馈及独立打包。
@@ -58,7 +61,7 @@ Safari 26.6.2 已完成 17 次短范围、128 次全学期、27 张网页卡片�
 [本轮验收](STUDENT_ACCEPTANCE.md#acceptance-mac-r4)，学生使用见 [Mac 说明](MACOS.md)。
 下方记录此前公开基线和源码适配历史，不能作为新包的验收结果。
 
-## 当前基线
+## 历史：rc11 与 Mac 源码试用基线
 
 | 对象 | 已确认的范围 |
 | --- | --- |
@@ -70,7 +73,7 @@ Safari 26.6.2 已完成 17 次短范围、128 次全学期、27 张网页卡片�
 
 本仓库使用干净公开历史。个人同步目录单独保留全部配置和历史，经审查的源码按清单更新，不把私人历史、个人课表或服务器配置合入本仓库。新克隆缺少个人数据与虚拟环境属于正常情况。
 
-## 当前行为与交付
+## 历史：rc11 行为与交付
 
 `codex/macos-local-trial` 增加 Apple 芯片 Mac 源码运行支持，使用方式见 [MACOS.md](MACOS.md)。本机 156 项 Python 通过、1 项 Windows CMD 跳过，三组 JS 与源码自检通过；原生窗口流程、Chrome 真实短/全范围与独立重复采集完成，128 次课程的双导出和网页抽查一致。Windows Server 2025 runner 的 157 项 Python（含 CMD）、三组 JS 与源码自检也已通过；[PR #2](https://github.com/lhwen686/shsmu-schedule-sync/pull/2)保留完整检查。源码分支供审查，不改变 Windows rc11 发布附件；详细证据和未验设备见 [Mac 本机验收](STUDENT_ACCEPTANCE.md#acceptance-macos-local)。
 
