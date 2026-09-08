@@ -69,9 +69,9 @@ PASS、FAIL、NOT RUN 和不适用的含义以 MAINTENANCE 为准。原始个人
 - **PASS：** 最终本机 `python -X utf8 check.py` 退出 0：157 项 Python 中 156 通过、0 失败、1 项 Windows CMD 跳过，三组 JavaScript 通过。源码自检退出 0 / PASS，`frozen=false`。原版 147 项和第一次改后 153 项记录仍保留，不混算执行次数。
 - **PASS：** 本地创建仅调用现有虚拟环境与源码的 `.app` 入口，用户允许任务目录访问后，原生工具可识别与操作窗口。完成首次引导、原生选文件/取消/重复导入、CSV 与 ICS Finder 定位、设置、帮助、两种导入指引、缩放、关闭重开及原生排错 ZIP 保存；合成截图及哈希证据保留本机。物理触控板使用用户直接确认，不冒充自动鼠标验证。
 - **PASS：** 真实学校 .10 采集器短范围 17 次课程、完整范围 128 次课程，随后独立重复完整采集 0/0/0。实际 CSV 与 ICS 全部 128 条回读核对；学校网页 27 条课程卡和其中 12 条详情核对一致。原短范围 UID 和三次采集的完整历史均保留；重复采集 CSV/ICS 字节一致。对应环境与界限见 [Mac 验收表](STUDENT_ACCEPTANCE.md#acceptance-macos-local)。
-- 新增 Windows Actions 合成检查，运行完整 Python/JS、真实 CMD 场景和源码自检，执行结果以 PR 为准；不构建 EXE、不发布附件，不替代 Windows 学生设备验收。
+- **PASS：** 源码提交 `eb44124b121d563c67df7111dc06aa3ad35f049a` 的 [Windows Actions](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/34186882493) 在 Windows Server 2025 / Python 3.12.10 / Node 22.23.2 上执行 157 项 Python，157 通过、0 失败、0 跳过，真实 CMD 用例通过；三组 JS 与源码自检 PASS。源码自检 `frozen=false`、`elevated=true`、`python_on_path=true`，不是无 Python 学生电脑或发行包验收；未构建 EXE、未发布附件。
 - 实现者审查源码 diff、手动恢复、平台路径和明确文件清单；采集器五个模块、课程算法、UID 规则、依赖、CMD、发布资源保持基线字节。公开内容只含源码、合成测试、工作流和汇总文档；个人课表、配置、网页详情、启动入口与截图不提交。独立审查 NOT RUN。
-- 源码通过独立 `codex/macos-local-trial` 分支提交供 PR 审查；不合并 main、不调整应用或书签版本、不发布软件包。当前记录提交可由 `git log -1 --format=%H -- VERIFICATION.md` 定位；回滚只撤销该分支源码修改，个人数据目录不参与回滚。
+- 源码已通过独立 `codex/macos-local-trial` 分支提交并建立 [PR #2](https://github.com/lhwen686/shsmu-schedule-sync/pull/2)；远端树与本机明确暂存清单一致，17 个修改文件，20 个保护文件保持原始 SHA-256；不合并 main、不调整应用或书签版本、不发布软件包。当前记录提交可由 `git log -1 --format=%H -- VERIFICATION.md` 定位；回滚只撤销该分支源码修改，个人数据目录不参与回滚。
 
 <a id="diagnostics-rc11"></a>
 ## FEAT-20260907-01：rc11 执行日志与一键排错包

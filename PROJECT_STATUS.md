@@ -19,7 +19,7 @@
 
 ## 当前行为与交付
 
-`codex/macos-local-trial` 增加 Apple 芯片 Mac 源码运行支持，使用方式见 [MACOS.md](MACOS.md)。本机 156 项 Python 通过、1 项 Windows CMD 跳过，三组 JS 与源码自检通过；原生窗口流程、Chrome 真实短/全范围与独立重复采集完成，128 次课程的双导出和网页抽查一致。Windows runner 检查以 PR 结果为准。源码分支供审查，不改变 Windows rc11 发布附件；详细证据和未验设备见 [Mac 本机验收](STUDENT_ACCEPTANCE.md#acceptance-macos-local)。
+`codex/macos-local-trial` 增加 Apple 芯片 Mac 源码运行支持，使用方式见 [MACOS.md](MACOS.md)。本机 156 项 Python 通过、1 项 Windows CMD 跳过，三组 JS 与源码自检通过；原生窗口流程、Chrome 真实短/全范围与独立重复采集完成，128 次课程的双导出和网页抽查一致。Windows Server 2025 runner 的 157 项 Python（含 CMD）、三组 JS 与源码自检也已通过；[PR #2](https://github.com/lhwen686/shsmu-schedule-sync/pull/2)保留完整检查。源码分支供审查，不改变 Windows rc11 发布附件；详细证据和未验设备见 [Mac 本机验收](STUDENT_ACCEPTANCE.md#acceptance-macos-local)。
 
 学生入口为 `医学院课表助手.exe`，源码入口为 `desktop.py`。先开始接收，再由本人在平时登录教务的浏览器中点击书签。WakeUp CSV 和 Apple ICS 分别判断就绪、失败及手机确认；电脑生成文件后仍需手工导入手机。桌面不上传 WebCal，原 CLI 仍可使用本人独立配置的服务。
 
