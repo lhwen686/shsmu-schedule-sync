@@ -423,11 +423,14 @@ class DesktopTests(unittest.TestCase):
         file = self.root / 'output/calendar.ics'
         file.write_bytes(b'old damaged file')
         pointer = (self.root / 'data/current.json').read_bytes()
-        def fail_calendar(path, data):
-            if Path(path) == file:
+        real_replace = sync.os.replace
+        def fail_calendar(source, destination):
+            # Both shared repair and the independent Apple exporter must see
+            # the same persistent filesystem failure.
+            if Path(destination) == file:
                 raise PermissionError('synthetic write denial')
-            sync.atomic_write(path, data)
-        with patch('desktop_service.atomic_write', side_effect=fail_calendar):
+            return real_replace(source, destination)
+        with patch('os.replace', side_effect=fail_calendar):
             result = self.service.run(export_only=True)
         self.assertIsNone(result['issue'])
         self.assertIsNone(result['apple_report'])

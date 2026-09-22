@@ -449,7 +449,7 @@ class AssistantWindow:
 
     def show_result(self, result):
         report, apple_report, imported = result['report'], result['apple_report'], result['imported']
-        complete = report is not None and apple_report is not None
+        complete = report is not None and apple_report is not None and not result.get('output_issues')
         self.clear('电脑处理结果 · 手机仍需手动导入', '课表准备好了' if complete else '课表已保存',
                    '按你使用的 App 选择文件。' if complete else '请查看每种文件的状态，可用的文件可以继续导入。')
         summary_report = apple_report or report
@@ -466,6 +466,9 @@ class AssistantWindow:
                 self.label('请核对：' + warning)
         else:
             self.label('本次由已保存课表重新生成，没有重新访问学校。', 'Small.TLabel')
+        for output_issue in result.get('output_issues', {}).values():
+            self.label(output_issue.title + '。' + output_issue.next_step, 'Small.TLabel')
+            self.details.append(output_issue.detail)
         self.export_choices(report, apple_report, wakeup_issue=result['issue'], apple_issue=result['apple_issue'])
         self.label('电脑文件生成成功后，手机仍需手动导入并核对。', 'Small.TLabel')
 

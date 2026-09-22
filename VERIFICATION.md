@@ -1,5 +1,64 @@
 # 验证与修复记录
 
+<a id="reliability-commit-20260922"></a>
+## BUG-20260922-02：提交与派生输出分别报告、分别恢复
+
+基线为 BUG-20260922-01 的提交 `b157f9be4cfdadb57af82c23e23cb0da06fa243c`；
+此次独立提交只处理保存/输出边界及相应验证。提交可用
+`git log -1 --format=%H --grep='Separate committed snapshots'` 定位。
+
+根因：`publish` 在原子替换 `data/current.json` 后调用 `repair_exports`，
+任何派生写入异常会越过桌面的两种独立导出；导入开始时的修复同样会阻止重复文件或新文件恢复。
+现在先完成不可变运行和当前指针，再逐文件尝试派生输出，返回原异常映射。
+`ImportResult.committed` 表示返回的快照已提交，`duplicate` 区分同一文件，
+`output_errors` 保留输出失败；提交前异常仍抛出，不能宣称新课表已保存。
+当前指针和快照哈希验证不进入容错捕获，不回滚已确认的提交。
+
+桌面始终分别尝试 Apple 与 WakeUp。结果中的 `committed`、`apple_report/apple_issue`、
+`report/issue` 和 `output_issues` 分别表示课表、两种文件和辅助输出状态。
+提交后 collector_revision 状态写失败也不能截断独立导出。
+UI 仅补充必要的失败/恢复提示，诊断记录标记 partial 并保存原异常；未做视觉重构。
+Apple 的短暂写失败如在独立重试中恢复，最终可用状态和原始诊断分别保留。
+CLI 输出失败退出 1 并明确“已保存、未上传、可 --repair”，不把旧输出当成功结果。
+桌面重新生成及 CLI --repair 都从当前完整快照恢复，桌面仍不上传 WebCal。
+
+最小复现：`python -X utf8 -m unittest -v test_commit_boundary`。
+实际进入 `import_capture_unlocked` / `DesktopService.run`，在 `os.replace` 注入定点失败：
+首次/更新、运行目录或当前指针替换前、四个提交后派生文件、WakeUp CSV/说明/清单、
+桌面状态、重复文件、提交前取消、提交中取消、重开和无新采集恢复。
+保留锁、账号拒绝、UID/别名/sequence、取消历史和文件哈希的断言。
+改前 7 个方法中出现 22 个错误子例，退出 1：16 个为真实后置写失败越过返回路径，
+6 个为旧结果缺少新增 committed 字段，后者不单独作为根因证据。
+改后首轮 7/7 PASS；补充 CLI/账号/状态写失败后 10/10 PASS，退出 0。
+原始日志为 `local/reliability-20260922/commit-red.log`、`commit-green.log`、`commit-final.log`。
+
+原生 Windows 源码验证（Python 3.12.6、Node 24.19.0；合成数据、临时目录）：
+
+| 检查 | 实际结果 | 原始记录 |
+| --- | --- | --- |
+| 未修改基线 `check.py` | FAIL，退出 1；Python 180 秒限时，三组 JS PASS | `baseline-check.log` |
+| 未修改基线 unittest discover | 187 项：178 PASS / 1 FAIL / 8 SKIP，退出 1 | `baseline-unittest.log` |
+| 基线等待下载用例单独复查 | 1 PASS，退出 0；全套时 5 秒后台等待失败，未改该用例 | `baseline-waiter-recheck.log` |
+| 首次完整 `check.py --python-timeout 600` | 202 项：193 PASS / 1 FAIL / 8 SKIP；三组 JS PASS，退出 1 | `final-check.log` |
+| 旧 Apple 故障测试修正后复查 | 1 PASS，退出 0 | `apple-fault-recheck.log` |
+| 最终 `check.py --python-timeout 600` | PASS，202 项：194 PASS / 0 FAIL / 8 SKIP，118.975 秒；三组 JS PASS，退出 0 | `final-check-r2.log` |
+| 源码 `desktop.py --self-test <临时报告路径>` | PASS，退出 0；frozen=false，原生 Windows/Tk | `source-self-test.log` / `source-self-test.json` |
+
+首次完整检查的单项失败源于旧测试只 patch `desktop_service.atomic_write`，
+没有阻断新增共享恢复写入。现改为实际 `os.replace` 故障，保留原断言，未减弱文件校验。
+`check.py` 保留默认 180 秒及堆栈诊断，仅增加显式限时参数（最大 3600 秒），
+本轮用 600 秒容纳原生磁盘故障矩阵；不关闭 watchdog、不排除测试。
+源码 self-test 同步核对 `.13` 生成书签及模块完整内容。
+
+8 个 SKIP 分别为 6 个 Mac 回调/恢复场景和 2 个本机无符号链接权限的包装场景。
+原生 Mac、最终 EXE/APP/安装包、学校短/全范围与网页核对、真实手机、真实浏览器、
+线上上传/部署/发布：NOT RUN；本轮禁止或不具备环境，不继承历史 PASS。
+独立人工/子代理/Jev 审查 NOT RUN；完成了当前代理的差异和约束检查。
+CMD 工作区/Git blob 与参考基线的 6 个文件逐字节相同，全部 CRLF；`.gitattributes` 未改。
+本地审计助手最初混淆了普通文本检出的 CRLF 与 Git LF，相关助手失败单独保留，修正后检查通过。
+源码、原始日志、退出码和交付哈希清单另附本轮证据包。所有改动仅在独立分支，未推送。
+回滚用两个修复提交的逆序 `git revert`；不回退当前指针，不删除/重建个人历史。
+
 <a id="reliability-contract-20260922"></a>
 ## BUG-20260922-01：真实 JS / Python 请求参数契约
 

@@ -1,5 +1,12 @@
 # 项目状态
 
+2026-09-22 本地可靠性修复候选：从公开基线 `3145dcbb77224be46c2c44cc9f9e1fd206af7b50`
+建立独立分支 `codex/reliability-contract-commit-20260922`，分别修复跨语言参数契约和提交/输出边界。
+书签源码修订为 `2026-09-22.13`，应用版本未改，未重新打包或发布；已有浏览器书签只由本人手动替换。
+本轮 Windows 源码完整检查为 194 PASS、8 SKIP、0 FAIL，三组 JS 和源码 self-test PASS。
+原生 Mac、最终软件包、学校和手机验收 NOT RUN，详见 [本轮证据](VERIFICATION.md#reliability-commit-20260922)。
+下方 rc12 分发和实采结果保留原日期、版本归属。
+
 更新：2026-09-09。默认只读本页，再按 [维护索引](MAINTENANCE.md#task-map) 选择资料。学生使用见 [README](README.md)，实机验收见 [STUDENT_ACCEPTANCE](STUDENT_ACCEPTANCE.md)。
 
 <a id="baseline"></a>

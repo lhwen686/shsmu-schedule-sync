@@ -238,7 +238,8 @@ def recorded(kind):
                 log.exception(error)
                 log.finish('cancelled' if type(error).__name__ == 'SyncCancelled' else 'failed')
                 raise
-            log.finish('partial' if isinstance(result, dict) and (result.get('issue') or result.get('apple_issue')) else 'success')
+            log.finish('partial' if isinstance(result, dict) and (
+                result.get('issue') or result.get('apple_issue') or result.get('output_issues')) else 'success')
             return result
         return call
     return decorate

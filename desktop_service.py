@@ -13,7 +13,7 @@ from prepare import BROWSER_MODULES, build_bookmark
 from source import SourceError
 from sync import (SyncCancelled, atomic_write, capture_folder, check_cancelled,
                   exclusive_sync, import_capture_unlocked, json_bytes, load_current,
-                  load_settings, validate_settings, wait_capture)
+                  load_settings, repair_exports, validate_settings, wait_capture)
 from wakeup import export_current_unlocked, load_slot_times, slot_times, validate_slot_times
 from diagnostics import APP_VERSION, DiagnosticRecorder, recorded
 from platform_support import default_data_root
@@ -303,6 +303,7 @@ class DesktopService:
             check_cancelled(cancel)
             self.save_state(export_ready=False)
             imported = None
+            output_errors = {}
             if not export_only:
                 if capture is None:
                     folder = capture_folder(config, self.config_path)
@@ -315,13 +316,27 @@ class DesktopService:
                     new_term=self.state().get('confirmed_term') == term_key(config),
                     progress=lambda text: emit('detail', text), cancel=cancel,
                     on_commit=lambda: emit('committing', '正在保存完整课表，请稍候…'), observe=self.diagnostics.observe)
-                self.save_state(collector_revision=imported.collector_revision)
+                output_errors.update(imported.output_errors)
+                try:
+                    self.save_state(collector_revision=imported.collector_revision)
+                except Exception as error:
+                    output_errors['local/desktop-state.json'] = error
             else:
                 current = load_current(self.root)
                 if current is None:
                     raise DataError('没有已提交的完整课表，请先获取课表。')
                 if term_key(current['scope']) != term_key(config):
                     raise DataError('学期设置已经改变，请先获取当前选择学期的课表。')
+                repair_exports(self.root, errors=output_errors)
+            output_issues = {}
+            for target, error in output_errors.items():
+                self.diagnostics.exception(error, stage='derived_export_failed')
+                # ICS is independently retried/validated below; retain the
+                # original failure in diagnostics and ImportResult either way.
+                if target != 'output/calendar.ics':
+                    output_issues[target] = UserIssue('课表已保存，部分辅助文件未生成',
+                        '请点击“重新生成导入文件”，无需重新采集。',
+                        f'{target}: {type(error).__name__}')
             # Do not cancel after a successful commit: finish creating its output.
             emit('exporting', '课表已保存，正在准备 WakeUp 和苹果日历文件…')
             self.diagnostics.capture_committed(self.root)
@@ -341,7 +356,8 @@ class DesktopService:
                 self.diagnostics.exception(error, stage='wakeup_export_failed')
                 issue = explain_error(error, exporting=True)
             return {'imported': imported, 'report': report, 'issue': issue,
-                    'apple_report': apple_report, 'apple_issue': apple_issue}
+                    'apple_report': apple_report, 'apple_issue': apple_issue,
+                    'committed': True, 'output_issues': output_issues}
 
 
 class DesktopJob:
