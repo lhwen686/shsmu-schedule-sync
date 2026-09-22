@@ -14,7 +14,7 @@ from pathlib import Path
 from dataclasses import dataclass
 
 from core import DataError, content_hash, export_ics, human_diff, ids, normalize, parse_time, reconcile
-from source import CaptureSource, LoginRequired, SourceError, request_key, scrub, write_json
+from source import CaptureSource, LoginRequired, SourceError, detail_params, request_key, scrub, write_json
 from prepare import build_bookmark, downloads_folder
 from diagnostics import notify
 from webcal import UploadError, publish_current
@@ -142,8 +142,7 @@ def fetch_complete(source, config, run_dir, progress=print, cancel=None, observe
     items, detail_cache = [], {}
     for index, row in enumerate(all_rows, 1):
         check_cancelled(cancel)
-        key = request_key('/Home/GetCalendarTable', {k: str(row.get(k) or '') for k in
-                          ('MCSID', 'CSID', 'CurriculumID', 'XXKMID', 'CurriculumType')})
+        key = request_key('/Home/GetCalendarTable', detail_params(row))
         if key not in detail_cache:
             result = source.details(row)
             notify(observe, 'detail_read', index=index, count=len(result) if isinstance(result, list) else None)

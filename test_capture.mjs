@@ -165,7 +165,7 @@ assert.equal(blobs.length,resume?2:1,panels[0]?.textContent);
 const downloaded=JSON.parse(await blobs[blobs.length-1].text());
 assert.equal(downloaded.format,'shsmu-capture-v1');
 assert.equal(downloaded.complete,true);
-assert.equal(downloaded.collector_revision,'2026-09-08.12');
+assert.equal(downloaded.collector_revision,'2026-09-22.13');
 assert(downloaded.diagnostics.request_log.length > 0);
 assert(downloaded.diagnostics.request_log.every(entry => typeof entry.recorded_at === 'string'));
 assert(downloaded.diagnostics.request_log.filter(entry => entry.state==='success').every(entry => entry.duration_ms >= 0));

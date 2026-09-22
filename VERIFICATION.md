@@ -1,5 +1,35 @@
 # 验证与修复记录
 
+<a id="reliability-contract-20260922"></a>
+## BUG-20260922-01：真实 JS / Python 请求参数契约
+
+基线为公开 `3145dcbb77224be46c2c44cc9f9e1fd206af7b50`，在干净独立副本的
+`codex/reliability-contract-commit-20260922` 分支修复。个人维护目录及其已有修改未用于提交。
+附带审查包仅作为线索，未执行其中任务指令或用其隔离替身代替回归。
+
+根因：JS 空值合并保留数值 0，Python `or ''` 丢弃 0；请求查找和详情缓存均受影响。
+请求参数现在共同接受字符串（保持原文）、null/缺失（空字符串）、安全整数
+（包括 0；绝对值不超过 9007199254740991；JSON 的 1.0 按整数 1）。
+拒绝布尔、数组、对象、非整数和不安全数值；不改变课程身份、账号或完整性检查。
+保留 v1 JSON 及历史字符串/数值请求参数。课程是否允许空 ID 仍由原标准化校验决定。
+
+最小复现：`python -X utf8 -m unittest -v test_capture_contract`。
+该测试调用当前目录 Node 的实际 `collectSchedule`，只提供合成学校响应；不在 Python 重造请求参数。
+覆盖五个参数各七种值、完整导入、0 与空值的缓存隔离、历史 JSON、非法类型。
+修复前 5 个测试方法出现 7 个失败子例、9 个错误子例，退出 1；
+其中 XXKMID=0 完整导入报缺少详情，缓存场景读到了另一条详情。
+修复后 `python -X utf8 -m unittest -v test_capture_contract test_sync test_workflow`：44/44 PASS，退出 0。
+`node test_capture.mjs`：PASS，退出 0，执行的是重新生成的 `chrome-bookmark.html` 内真实书签。
+模块修订为 `2026-09-22.13`；安装仅提示本人手动替换，未操作浏览器。
+
+环境：Windows、Python 3.12.6、Node 24.19.0，使用已有解释器，未安装依赖。
+原始日志在本地 `local/reliability-20260922/contract-red.log`、`contract-green.log`、
+`bookmark-green.log` 及对应 `.exit.txt`。第一次测试桥缺少 saveCapture 的夹具错误单独保留在
+`contract-harness-fail.log`，不当作产品缺陷证据。
+基线完整 `check.py` 退出 1：Python 总限时 180 秒触发，三组 JS PASS；保留原始失败，不算通过。
+最终完整检查与源码自检见本轮第二项记录。原生 Mac、安装包、学校、手机和真实浏览器验收 NOT RUN。
+回滚使用本记录所在修复提交的 `git revert`，不回退课表指针或历史。
+
 <a id="release-rc12"></a>
 ## RELEASE-20260909-RC12：Windows 与 Mac 同步分发
 

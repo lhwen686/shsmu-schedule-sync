@@ -51,7 +51,15 @@ export async function collectSchedule(config, io) {
   if (!rows.length) fail('整个学期返回空课表，已停止；请核对登录账号和书签学期，旧课表保留');
   // Match the real event-click request exactly. Combining several events'
   // MCSIDs can silently return only one event from this endpoint.
-  const parameters=row=>({MCSID:String(row.MCSID??''),CSID:String(row.CSID??''),CurriculumID:String(row.CurriculumID??''),XXKMID:String(row.XXKMID??''),CurriculumType:String(row.CurriculumType??'')});
+  // Keep this transport contract aligned with source.parameter_text. Nullish
+  // fields are empty; 0 is "0". Identity/completeness checks remain in Python.
+  const parameterText = value => {
+    if (value == null) return '';
+    if (typeof value === 'string' || (typeof value === 'number' && Number.isSafeInteger(value))) return String(value);
+    fail('教学日历请求参数类型无效；只支持字符串、空值或安全整数。');
+  };
+  const parameters = row => Object.fromEntries(
+    ['MCSID','CSID','CurriculumID','XXKMID','CurriculumType'].map(key => [key, parameterText(row[key])]));
   const requested=new Set();
   for (const [index,row] of rows.entries()) {
     io.status(`读取教师详情 ${index+1}/${rows.length}，请保持页面打开…`);
