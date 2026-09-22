@@ -1,10 +1,14 @@
 # 项目状态
 
-2026-09-22 本地可靠性修复候选：从公开基线 `3145dcbb77224be46c2c44cc9f9e1fd206af7b50`
-建立独立分支 `codex/reliability-contract-commit-20260922`，分别修复跨语言参数契约和提交/输出边界。
+2026-09-22 可靠性修复候选已推送至 `codex/reliability-contract-commit-20260922`，
+源码对象为 `c9e196bfa2abfb8b38f90ebb081dda8468e5176f`，包含跨语言参数契约和提交/输出边界修复。
 书签源码修订为 `2026-09-22.13`，应用版本未改，未重新打包或发布；已有浏览器书签只由本人手动替换。
-本轮 Windows 源码完整检查为 194 PASS、8 SKIP、0 FAIL，三组 JS 和源码 self-test PASS。
-原生 Mac、最终软件包、学校和手机验收 NOT RUN，详见 [本轮证据](VERIFICATION.md#reliability-commit-20260922)。
+Windows 源码完整检查为 194 PASS、8 SKIP、0 FAIL，三组 JS 和源码 self-test PASS。
+同一 SHA 的原生 Apple 芯片 Mac 检查为 201 PASS、1 项 Windows CMD SKIP、0 FAIL，
+三组 JS 和源码 self-test PASS；Windows 跳过的 6 项 Mac 和 2 项符号链接场景均实际通过。
+Mac 首轮依赖缺失及临时路径别名夹具错误保留记录；补齐临时依赖并规范 TMPDIR 后复查通过，未改产品或测试代码。
+最终软件包、学校和手机验收仍为 NOT RUN；详见 [Mac 原生验收](VERIFICATION.md#reliability-mac-20260922)
+及 [Windows 修复证据](VERIFICATION.md#reliability-commit-20260922)。
 下方 rc12 分发和实采结果保留原日期、版本归属。
 
 更新：2026-09-09。默认只读本页，再按 [维护索引](MAINTENANCE.md#task-map) 选择资料。学生使用见 [README](README.md)，实机验收见 [STUDENT_ACCEPTANCE](STUDENT_ACCEPTANCE.md)。

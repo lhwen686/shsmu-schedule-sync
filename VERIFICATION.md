@@ -1,5 +1,86 @@
 # 验证与修复记录
 
+<a id="reliability-mac-20260922"></a>
+## VERIFY-20260922-MAC：固定可靠性提交的原生源码验收
+
+验收源码固定为 `c9e196bfa2abfb8b38f90ebb081dda8468e5176f`，包含
+`b157f9be4cfdadb57af82c23e23cb0da06fa243c` 参数契约修复及随后提交/输出边界修复。
+执行前远端可靠性分支与此 SHA 相同，main 仍为 `3145dcbb77224be46c2c44cc9f9e1fd206af7b50`。
+保留原 main 工作树，在独立临时工作树验证固定 SHA；本节仅记录验收，不重新实施修复。
+下方 Windows 记录中的“原生 Mac 未验”和“未推送”属于当时状态。
+
+环境：2026-09-22，macOS 27.0（26A428）、Apple M4 / arm64；已有 CPython 3.12.14、
+Node v24.15.0、Tcl/Tk 9.0.4 / Aqua。经用户授权，仅在独立临时目录补齐
+requirements.txt 依赖：icalendar 7.3.0、Pillow 12.3.0、tzdata 2026.3。
+未安装或更换 Python/Tk，未修改全局环境。所有运行使用合成数据。
+
+| 检查 | 本机实际结果 | 退出码 | 本地原始证据文件 |
+| --- | --- | --- | --- |
+| 初始定向检查 | 环境阻塞：缺少 icalendar，2 个模块未能加载 | 1 | `initial-targeted.log` |
+| 初始完整 check.py | 环境失败：12 个包装用例通过、10 个模块加载错误；三组 JS 通过 | 1 | `initial-full-check.log` |
+| 初始源码 self-test | 环境阻塞：导入错误触发启动对话框，未生成报告，终止本轮进程 | 1 | `initial-self-test-note.json`、`initial-self-test-startup.record.json` |
+| 补齐依赖后的定向检查 | 夹具失败：15 个方法中 24 个错误子例，临时目录路径别名不一致 | 1 | `targeted.log` |
+| 规范 TMPDIR 后定向检查 | 15 PASS：test_capture_contract 5 项、test_commit_boundary 10 项 | 0 | `targeted-canonical-tmp.log` |
+| 完整 check.py --python-timeout 600 | 202 项：201 PASS、1 SKIP、0 FAIL/ERROR；Python 22.369 秒；三组 JS PASS | 0 | `full-check.log` |
+| 源码 desktop.py --data-root <临时目录> --self-test <报告路径> | PASS；报告 status=PASS、frozen=false | 0 | `source-self-test.json`、`source-self-test.meta.json` |
+| 原生补充矩阵 | 11 PASS：8 个已有用例复核、3 个额外用例，不加到完整套件数量上 | 0 | `native-supplement.log`、`native-supplement-results.json` |
+| 真实写入中退出 | current.json 提交、wakeup.csv 导出两个阻塞点 PASS | 0 | `midwrite-quit.log`、`midwrite-quit-results.json` |
+
+唯一 SKIP 为 `test_usability.UsabilityTests.test_setup_cmd_real_exit_status_and_success_message`，
+原因 `Windows CMD entrypoint`，本机不能原生执行，不记通过。没有套用 Windows 的通过/跳过数量。
+
+Windows 跳过的 6 项 Mac 场景均在原生 Aqua 执行：
+`test_mac_quit_routes_through_safe_close_and_is_idempotent`、
+`test_dock_reopen_keeps_the_same_service`、
+`test_finder_failure_has_retry_and_keeps_export_state`、
+`test_finder_timeout_is_nonblocking_and_does_not_invalidate_files`、
+`test_command_w_closes_only_the_dialog`、
+`test_safe_quit_cancels_before_commit_and_finishes_after_commit`。
+两项包装场景也实际创建了符号链接并通过：
+`test_mac_component_preserves_symlink_without_copying_target_bytes`、
+`test_inventory_covers_both_files_and_symlinks_without_external_targets`。
+
+原生窗口重开、已有 JSON 恢复、保存目录恢复、文件选择取消由完整套件覆盖。
+额外调用 ShowPreferences / ShowHelp 系统回调，验证页面、service 身份和配置保持；
+向已显示子窗口生成 Command-W 事件，验证仅目标窗口关闭，另一个子窗口和主窗口保留。
+保存目录及下载目录选择取消也验证配置不变。Finder 非零退出与超时为合成故障注入，
+验证反馈、非阻塞和输出状态保持，不代表实际制造了 Finder 故障。
+
+安全退出使用真实 DesktopJob 非守护后台线程，并在 waiting、processing、committing、
+exporting 四阶段分别阻塞，重复调用原生 Quit 回调。提交前取消保持旧指针；提交开始后等待完成。
+另外在真实 `os.replace` 的 `data/current.json` 与 `output/wakeup.csv` 目标处阻塞，
+验证锁仍被持有、退出没有销毁窗口或设置取消标志；解除阻塞后提交和两种导出完成，
+重开可用，锁可重新获取。补充脚本保留在本地验收材料中，未写入产品或共享测试文件。
+
+首轮问题分为环境与夹具两类，均保留失败原文：
+
+- 环境缺少 icalendar。仅按本轮授权补齐临时目录依赖后复查。
+- `test_commit_boundary.py` 对未 resolve 的 tempfile root 与已经 resolve 的
+  DesktopService 路径直接执行 `relative_to`；Mac 的 `/var` 与 `/private/var` 别名
+  导致故障注入器先于预期写入失败点抛出 ValueError。只把 TMPDIR 设为同一目录的真实路径，
+  原样测试即通过。未修改共享文件；后续由共享测试负责人统一评估规范化场景 root。
+
+初次 self-test 未传 data-root，启动异常曾生成一个默认目录诊断文件；仅将该次生成的文件
+移入本地证据，后续入口使用显式临时目录。其他文件未修改。
+本轮未发现已覆盖场景中的可确认产品缺陷，没有另开产品修复分支。
+
+源码身份：APP_VERSION `1.0.0-rc12`，collector `2026-09-22.13`，frozen=false。
+构建输入指纹 `f4cee301bbf3e00f8786404a9216be322c9eaf0f3e6e349d0c2a5d4f2458da4d`。
+实际生成书签长度 55632，SHA-256
+`04ad67a9c137b23b9d05d9351ac9b8ec44f0663c20aad9a5e1fe35be7f67bd79`。
+现存历史 APP 仅核对 plist 与可执行文件哈希，未认定属于此 SHA，也未运行冻结自检。
+
+验收边界：最终 APP/EXE、签名/首次打开、实际 Dock 点击、物理 Command-Q/W、菜单点击、
+原生选择器取消按钮、真实外置盘/系统权限提示仍为 NOT RUN。
+学校短/全范围采集、网页核对、真实浏览器与手机导入分别 NOT RUN，不继承历史 PASS。
+本地套件的 WebCal 测试只使用临时回环服务，不代表线上上传。
+审查由当前代理完成；独立第二审查者 NOT RUN。产品文件及共享测试在本轮保持不变。
+
+完整验收表、原始日志、每次命令/时间/退出码、self-test、环境/冻结身份、文件哈希及补充脚本
+仅保留在本地证据包 `Mac-native-c9e196b-20260922.zip`，不上传本机路径和诊断原文。
+证据包 SHA-256：`ee9c2f091f2ead727f73fd08a3403c1e7f53e6b075c375d7b252986b7dd67d1b`。
+本次文档提交可单独 revert，不回退可靠性修复，也不改变任何课表指针或历史。
+
 <a id="reliability-commit-20260922"></a>
 ## BUG-20260922-02：提交与派生输出分别报告、分别恢复
 
