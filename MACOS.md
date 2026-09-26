@@ -2,9 +2,9 @@
 
 ## 独立 Mac 应用
 
-当前候选版为 **1.0.0-rc12 · Mac 修订 6**，仅面向 Apple 芯片（M 系列）Mac。
+当前候选版为 **1.0.0-rc13 · Mac 修订 7**，仅面向 Apple 芯片（M 系列）Mac。
 程序内置运行环境，使用 APP 不需要安装 Python。正式签名和 Apple 公证尚未完成。
-本次状态见 [rc12 验收](STUDENT_ACCEPTANCE.md#acceptance-rc12)。
+本次状态见 [rc13 验收](STUDENT_ACCEPTANCE.md#acceptance-rc13)。
 Windows 与 Mac 软件从同一份源码分别构建；旧修订包仍保留，不与新版混合合包。
 
 1. 在 Finder 完整解压验收 ZIP，将 `Mac` 文件夹中的“医学院课表助手.app”拖入“应用程序”。
@@ -12,8 +12,8 @@ Windows 与 Mac 软件从同一份源码分别构建；旧修订包仍保留，�
    [Apple 官方说明](https://support.apple.com/zh-cn/102445)在“系统设置 → 隐私与安全性”
    为该应用选择“仍要打开”。若提示损坏或将损坏电脑，停止打开并联系维护者。
 3. 阅读包内 `使用说明.html`，在平时正常登录教务的浏览器中安装课表书签。
-   Safari 使用下方引导；rc12 两端均生成 `.12` 新版书签。
-   已有完整 JSON 时可直接点“文件已经下载”，无需重新采集。
+   Safari 使用下方引导；rc13 两端均生成 `.14` 新版书签。
+   已有完整 JSON 时可直接点“选择已下载的课表”，无需重新采集。
 
 拒绝下载文件夹权限后，可手动选择完整 JSON，或在助手中选择其他可读的下载文件夹。
 不需要授予完整磁盘访问权限，也不要关闭系统安全检查或删除隔离属性。
@@ -29,14 +29,14 @@ Command+Q、应用菜单和 Dock“退出”均安全结束，保存开始后会
 Command+W 关闭当前窗口；关闭主窗口会退出助手。点击 Dock 恢复已有窗口。
 
 更新时先安全退出旧助手，再替换 APP。课表保存在 APP 外，不要删除保存目录。
-Mac 系统版本字段为 `1.0.0`、构建号 `12.0`，“关于”显示完整版本及修订号。
+Mac 系统版本字段为 `1.0.0`、构建号 `13.0`，“关于”显示完整版本及修订号。
 包内原生程序最低要求 macOS 11.0；这不是对所有后续系统已完成实测的声明。
 Intel Mac、其他系统实机和手机导入仍待独立验收。
 Safari `.11` 的学校实采历史单独记在 [Safari 验收](STUDENT_ACCEPTANCE.md#acceptance-safari)。
 
 ## Safari 课表按钮
 
-rc12 软件生成的采集按钮版本为 `2026-09-08.12`。更新软件后，请在实际采集的
+rc13 软件生成的采集按钮版本为 `2026-09-26.14`。更新软件后，请在实际采集的
 浏览器中手动替换一次旧书签；软件更新不会自动修改浏览器已经保存的按钮。
 
 1. 在 Safari 打开新版安装页。输入本地文件地址后若出现“确认要载入的文件”，
@@ -48,11 +48,11 @@ rc12 软件生成的采集按钮版本为 `2026-09-08.12`。更新软件后，�
 4. 首次使用 Safari 时，先从教务首页打开一次 **我的课表**，看到课程后回首页。
    本机实测仅登录首页时接口返回空结构，打开学校课表页后恢复。
    在助手开始接收，再在显示本人学号的首页点击个人收藏栏里的课表按钮。
-   采集面板底部应显示 `2026-09-08.12`。
+   采集面板底部应显示 `2026-09-26.14`。
 5. 首次提示是否允许教务网站下载时，确认站点为 `jwstu.shsmu.edu.cn` 后允许下载。
-   查看 Safari 工具栏的下载列表；若没有 JSON，在教务页点 **重新下载采集文件**。
+   查看 Safari 工具栏的下载列表；若没有 JSON，在教务页点 **重新下载课表文件**。
    此操作只保存本次结果，不会再读取学校。回助手生成 `wakeup.csv` 和 `calendar.ics`；
-   如果文件保存到别处，点 **文件已经下载** 选择本次 JSON。
+   如果文件保存到别处，点 **选择已下载的课表** 选择本次 JSON。
 
 本轮仍使用顺序、限量的学校同源 GET 和一个脱敏 JSON；无需启用开发者菜单、
 允许 Apple 事件执行 JavaScript、安装扩展或修改安全设置。
@@ -96,7 +96,7 @@ python3 -m venv .venv
 
 Mac 界面使用系统可用中文字体；书签栏提示为 **Command + Shift + B**，复制为
 **Command+C**。两种导出按钮分别在 Finder 中选中文件。目录访问被拒时，
-可以在“遇到问题”选择“文件已经下载”，手动选择其他位置的完整 JSON。
+可以在“帮助与排错”选择“选择已下载的课表”，手动选择其他位置的完整 JSON。
 
 直接运行 Python 时，Dock 可能显示解释器名称，部分原生自动化工具也无法按应用名
 定位窗口。早期源码验收曾使用依赖本机 Python 的启动入口；该历史对象不等于当前内置运行环境的独立 APP。
@@ -119,8 +119,8 @@ Mac 会明确跳过 Windows CMD 场景。分支配置了 GitHub Windows runner �
 在已有构建环境的 Apple 芯片 Mac 上执行：
 
 ```sh
-python -X utf8 build_desktop.py --output-dir dist/mac-rc12 --work-dir build/mac-rc12
-python -X utf8 package_desktop.py --mac-dir dist/mac-rc12 --mac-only --output dist/mac-rc12.zip
+python -X utf8 build_desktop.py --output-dir dist/mac-rc13 --work-dir build/mac-rc13
+python -X utf8 package_desktop.py --mac-dir dist/mac-rc13 --mac-only --output dist/mac-rc13.zip
 ```
 
 构建使用仓库内的 Mac spec，在签名前写入版本与系统声明，并检查全部包内原生二进制的

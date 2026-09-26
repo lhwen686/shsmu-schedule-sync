@@ -1,5 +1,18 @@
 # 验证与修复记录
 
+<a id="release-rc13"></a>
+## RELEASE-RC13：双平台新候选的发布门槛
+
+2026-09-26，[PR #4](https://github.com/lhwen686/shsmu-schedule-sync/pull/4) 经两次 Windows CI 成功后合入 `main`，合并提交 `cee1b98de6e2d898ef161608006f527838d38233`。新版本分支 `codex/release-rc13` 从该提交建立；应用版本 `1.0.0-rc13`、Mac 修订 7 / 构建号 `13.0`，两端书签版本 `2026-09-26.14`。仅将公开源码与说明用于构建，个人目录、配置、课表和日志不进入发布包。
+
+Windows 本地源码预检使用现有 Python 3.12.6 环境、Node 24.19.0 与隔离合成数据。首轮 `check.py --python-timeout 600` 在 206 项 Python 中有 1 FAIL、8 SKIP：Mac ZIP 用例仍硬编码“修订 6”；三组 JS 通过。将断言改为检查当前 `MAC_PACKAGE_LABEL` 后，`test_packaging` 定向 12 项中 10 PASS、2 项因本机符号链接权限 SKIP；最终完整检查 206 项中 **198 PASS、8 SKIP、0 FAIL/ERROR**，三组 JS PASS，退出 0。`desktop.py --data-root <隔离目录> --self-test <报告>` 退出 0，报告 `status=PASS`、`app_version=1.0.0-rc13`、`collector_revision=2026-09-26.14`、`frozen=false`；此为源码自检，不冒充 EXE/APP 验收。本机完整日志及源码自检报告仅留在忽略目录 `local/release-rc13/`。
+
+首轮[原生工作流](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36243131557)在提交 `6325d89` 上执行：Windows 206 项中 200 PASS、6 SKIP，三组 JS、构建和冻结程序自检 PASS；Mac 206 项中 1 FAIL、1 SKIP，三组 JS PASS，构建未执行，合包与发布被门禁跳过。FAIL 是 9 月 26 日新增的文件定位测试写死 `explorer.exe`，而 Mac 正确调用 `/usr/bin/open -R`；产品文件定位实现未失败。测试已改为分别注入 Windows/Mac 平台并核对两套命令，本机定向复查 PASS；修正后本机再次完整检查 206 项中 198 PASS、8 SKIP、三组 JS PASS，退出 0。后续原生工作流须在修正提交上重新完整运行，旧 Windows PASS 不代替新提交结果。
+
+发布工作流须分别在 Windows x64 与 macOS arm64 运行完整检查、原生构建和冻结程序自检；生成书签、源码指纹、Mac 符号链接、ZIP 和六个公开附件需校验，发布后还要回下载逐字节复核。任一门槛失败则不把构建当作已发布。rc12 旧附件保留，不覆盖；rc13 的实际运行、源码提交及产物 SHA-256 待工作流完成后记录。
+
+当前版本真实教务短/全范围、至少 10 条网页核对、独立重复采集、iPhone 导入、其他电脑和完整原生窗口验收均为 **NOT RUN**。旧源码在 Windows 200% 缩放下的排错日志窗口裁切是已知问题，本次版本更新未宣称修复；参见 [rc13 学生验收](STUDENT_ACCEPTANCE.md#acceptance-rc13)。
+
 <a id="ui-copy-public-20260926"></a>
 ## UI-COPY-PUBLIC-20260926：个人目录文案合入公开源码候选
 

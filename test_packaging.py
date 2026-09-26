@@ -12,6 +12,7 @@ from unittest.mock import patch
 from build_desktop import artifact_inventory, build_command
 from desktop_smoke import dependency_bundle_root
 from package_desktop import combine, mac_component
+from platform_support import MAC_PACKAGE_LABEL
 
 
 class PackagingTests(unittest.TestCase):
@@ -225,7 +226,7 @@ class PackagingTests(unittest.TestCase):
                 self.assertIsNone(archive.testzip())
                 self.assertIn('使用说明.html', archive.namelist())
                 self.assertIn('仍要打开', archive.read('请先阅读.txt').decode())
-                self.assertIn('修订 6', archive.read('请先阅读.txt').decode())
+                self.assertIn(MAC_PACKAGE_LABEL, archive.read('请先阅读.txt').decode())
                 for line in archive.read('SHA256SUMS.txt').decode().splitlines():
                     digest, name = line.split('  ', 1)
                     self.assertEqual(hashlib.sha256(archive.read(name)).hexdigest(), digest)

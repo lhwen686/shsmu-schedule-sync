@@ -1,10 +1,23 @@
 # 项目状态
 
 <a id="baseline"></a>
-## 2026-09-26 公开源码合并候选
+## rc13 双平台预发布候选（2026-09-26）
+
+[PR #4](https://github.com/lhwen686/shsmu-schedule-sync/pull/4) 已合入 `main`，合并提交为
+`cee1b98de6e2d898ef161608006f527838d38233`。`codex/release-rc13` 从该提交准备
+Windows x64 与 Apple 芯片 Mac 的新预发布；发布页为
+[v1.0.0-rc13](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc13)。
+应用版本为 `1.0.0-rc13`，Mac 修订 7、构建号 `13.0`，书签版本为 `2026-09-26.14`。
+两端原生完整检查、冻结程序自检、书签与源码指纹核对和发布附件回读为发布门槛；
+实际结果与哈希以 [rc13 发布记录](VERIFICATION.md#release-rc13) 为准。
+升级后需在实际使用的浏览器中手动更新书签，并保留原课表目录、UID 与历史。
+新版学校采集、手机导入、其他电脑及完整原生窗口验收仍需按
+[rc13 学生验收](STUDENT_ACCEPTANCE.md#acceptance-rc13) 单独进行。
+
+## 2026-09-26 公开源码合并记录
 
 `codex/sync-local-work-20260926` 基于已推送的可靠性修复分支 `cdd52f9` 整理，
-准备连同 9 月 26 日的界面文案一起向 `main` 提交审查；`main` 的对比基线为 `3145dcb`。
+连同 9 月 26 日的界面文案经 PR #4 合入 `main`；审查时 `main` 的对比基线为 `3145dcb`。
 个人维护目录仍保留独立 Git 历史、配置和课表；公开候选只包含审查过的源码与文档。
 
 应用版本仍为 `1.0.0-rc12`，书签源码修订为 `2026-09-26.14`；
@@ -12,7 +25,7 @@
 Windows 源码完整检查为 198 PASS、8 SKIP、0 FAIL，三组 JavaScript 检查与隔离源码自检 PASS。
 具体命令、修复过的陈旧断言和限制见 [本次集成记录](VERIFICATION.md#ui-copy-public-20260926)。
 本候选没有重新构建 EXE/APP、发布软件、安装用户书签、采集学校课表或验证手机导入；
-当前 [rc12 下载包](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc12)仍使用 `.12` 书签和发布当时的界面。
+当时 [rc12 下载包](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc12)仍使用 `.12` 书签和发布当时的界面。
 若以后分发本候选，用户须在正常登录的浏览器中手动替换完整书签地址。
 
 2026-09-22 可靠性修复候选已推送至 `codex/reliability-contract-commit-20260922`，

@@ -18,7 +18,7 @@ def main():
                for platform in ('windows', 'macos')]
     for report in reports:
         assert report['status'] == 'PASS' and report['frozen']
-        assert report['app_version'] == APP_VERSION and report['collector_revision'] == '2026-09-08.12'
+        assert report['app_version'] == APP_VERSION and report['collector_revision'] == '2026-09-26.14'
         assert report['bundled_bookmark_verified'] and report['dependency_paths_in_bundle']
     assert reports[0]['generated_bookmark_sha256'] == reports[1]['generated_bookmark_sha256']
     output = ROOT / 'dist/release'
@@ -35,10 +35,10 @@ def main():
         archive.write(ROOT / '使用说明.html', '使用说明.html')
         archive.writestr('请先阅读.txt',
             '完整解压 ZIP，再打开 Windows 文件夹中的医学院课表助手.exe。无需另装 Python。\n'
-            '更新前退出旧助手并保留原课表目录。更新后请在实际采集的浏览器中手动替换旧书签，版本应为 2026-09-08.12。\n')
+            '更新前退出旧助手并保留原课表目录。更新后请在实际采集的浏览器中手动替换旧书签，版本应为 2026-09-26.14。\n')
     shutil.copy2(ROOT / '使用说明.html', output / 'User-Guide.html')
     manifest = json.loads((windows / 'build-manifest.json').read_text(encoding='utf-8'))
-    evidence = {'app_version': APP_VERSION, 'collector_revision': '2026-09-08.12',
+    evidence = {'app_version': APP_VERSION, 'collector_revision': '2026-09-26.14',
                 'source_fingerprint': manifest['source_fingerprint'],
                 'generated_bookmark_sha256': reports[0]['generated_bookmark_sha256'],
                 'native_self_tests': {'windows': reports[0], 'macos': reports[1]}}
