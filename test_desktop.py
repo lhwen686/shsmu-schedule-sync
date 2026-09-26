@@ -604,9 +604,14 @@ class DesktopTests(unittest.TestCase):
         from desktop_service import explain_error
         target = self.root / 'synthetic-log.zip'
         target.write_bytes(b'synthetic')
-        with patch('desktop.subprocess.Popen') as process:
-            reveal_file(target)
-        process.assert_called_once_with(['explorer.exe', '/select,', str(target.resolve())])
+        selected = str(target.resolve())
+        for platform, expected in (
+                ('win32', ['explorer.exe', '/select,', selected]),
+                ('darwin', ['/usr/bin/open', '-R', selected])):
+            with self.subTest(platform=platform), patch('platform_support.sys.platform', platform), \
+                    patch('desktop.subprocess.Popen') as process:
+                reveal_file(target)
+                process.assert_called_once_with(expected)
         with self.assertRaises(DataError) as caught:
             reveal_file(self.root / 'missing-log.zip')
         issue = explain_error(caught.exception)
