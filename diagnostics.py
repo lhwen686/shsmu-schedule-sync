@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from platform_support import default_data_root, select_data_root
 
-APP_VERSION = '1.0.0-rc12'
+APP_VERSION = '1.0.0-rc13'
 MAX_DISK = 50 * 1024 * 1024
 MAX_MATERIAL = 8 * 1024 * 1024
 MAX_INPUT = 20_000_000
@@ -592,7 +592,7 @@ def install_startup_hook():
         log.finish('failed')
         try:
             from tkinter import messagebox
-            messagebox.showerror('助手未能启动', '启动错误已尽力记录。重新打开助手后可在“遇到问题”导出排错日志。\n日志目录：' + str(log.directory))
+            messagebox.showerror('助手未能启动', '启动错误已尽力记录。重新打开助手后可在“帮助与排错”导出排错日志。\n日志目录：' + str(log.directory))
         except Exception:
             pass
     sys.excepthook = handle

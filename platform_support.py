@@ -5,7 +5,7 @@ import json
 import stat
 from pathlib import Path
 
-MAC_PACKAGE_LABEL = 'Mac 修订 6'
+MAC_PACKAGE_LABEL = 'Mac 修订 7'
 
 
 def default_data_root():
