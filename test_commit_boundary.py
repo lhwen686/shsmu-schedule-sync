@@ -26,6 +26,9 @@ def scenario(existing=False):
     with tempfile.TemporaryDirectory(prefix='commit-boundary-') as temp:
         root = Path(temp)
         service = DesktopService(root)
+        # Windows runners can return an 8.3 temp path while the service resolves
+        # it to a long path. Fault injection must use the path used by writes.
+        root = service.root
         service.initialize()
         service.save_settings(CONFIG)
         with patch('sync.publish_current', side_effect=AssertionError('Desktop must not upload')):
