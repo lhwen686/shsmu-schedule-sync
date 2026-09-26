@@ -1,5 +1,211 @@
 # 验证与修复记录
 
+<a id="ui-copy-public-20260926"></a>
+## UI-COPY-PUBLIC-20260926：个人目录文案合入公开源码候选
+
+公开 `main` 基线 `3145dcbb77224be46c2c44cc9f9e1fd206af7b50`；
+集成分支从已推送的可靠性候选 `cdd52f9` 建立，保留该分支的参数契约与提交/输出边界修复。
+个人目录 `main` 仍为独立历史 `6854e06` 且没有远端，故只用 9 月 26 日改前文件快照做三方合并，
+没有提交或推送个人目录历史、部署脚本、配置、课表、诊断材料及本机视觉截图。
+
+移植范围为桌面和浏览器显示文案、两类安装页、WakeUp 可读说明及相应测试断言；
+适配 rc12 的 Safari/Mac 路径和分区采集面板，保留错误码、原始阶段、账号/范围检查、提交与输出状态、
+诊断数据及独立双导出。书签模块变化后修订为 `2026-09-26.14`，重新生成示例安装页。
+同步了项目协作约定和维护流程的个人目录新增约束；Windows CI 对完整 Python 组显式使用 600 秒诊断限时。
+已发布的 rc12 软件包和用户现有书签没有改变。
+
+本机 Windows / Python 3.12.6 / Node 24.19.0，全部使用合成输入及隔离目录：
+
+| 检查 | 实际结果 |
+| --- | --- |
+| `python -X utf8 -m unittest -v test_desktop test_wakeup` | 68 PASS，退出 0 |
+| 首轮 `python -X utf8 check.py --python-timeout 600` | 206 项中 1 FAIL、8 SKIP；失败是 Mac 下载目录用例仍断言旧按钮名，三组 JS PASS |
+| 修正后定向 `test_platform_support.PlatformTests.test_unreadable_download_folder_has_actionable_error` | 1 PASS，退出 0 |
+| 最终同一完整检查 | 206 项：198 PASS、8 SKIP、0 FAIL/ERROR，137.711 秒；三组 JS PASS，退出 0 |
+| `desktop.py --data-root <隔离目录> --self-test <报告>` | 首次因旧首页标题断言 FAIL；更新断言后 PASS、退出 0，`frozen=false` |
+| 静态生成书签核对 | 5 个模块均与 `.14` 安装页内嵌源码一致；公开示例配置仅含学期和日期范围，CMD 未修改 |
+
+源码自检覆盖合班/分段课表的双导出、重复导入 UID/ICS 稳定、排错包脱敏、首次引导、
+已有 JSON 重新打开及不可用数据目录拦截。首次失败的陈旧断言均已保留本机日志并修正，
+最终测试和源码自检使用当前公开候选源码。`git diff --check` 及明确文件清单审查通过；
+独立第二审查者 NOT RUN。
+
+当前候选的 Windows 真实窗口、Mac 原生窗口、冻结 EXE/APP、新书签学校短/全范围采集、
+至少 10 条网页核对、独立重复采集及手机导入均为 NOT RUN，不继承以前版本的 PASS。
+9 月 26 日旧源码的 Windows 200% 缩放证据显示固定排错日志窗口裁切说明和保存按钮，
+改前亦存在；当前公开候选没有重做该原生视觉验收，不能声称此问题已修复。
+本机原始日志、三方合并预览和回滚快照只留在忽略目录。
+
+<a id="reliability-mac-20260922"></a>
+## VERIFY-20260922-MAC：固定可靠性提交的原生源码验收
+
+验收源码固定为 `c9e196bfa2abfb8b38f90ebb081dda8468e5176f`，包含
+`b157f9be4cfdadb57af82c23e23cb0da06fa243c` 参数契约修复及随后提交/输出边界修复。
+执行前远端可靠性分支与此 SHA 相同，main 仍为 `3145dcbb77224be46c2c44cc9f9e1fd206af7b50`。
+保留原 main 工作树，在独立临时工作树验证固定 SHA；本节仅记录验收，不重新实施修复。
+下方 Windows 记录中的“原生 Mac 未验”和“未推送”属于当时状态。
+
+环境：2026-09-22，macOS 27.0（26A428）、Apple M4 / arm64；已有 CPython 3.12.14、
+Node v24.15.0、Tcl/Tk 9.0.4 / Aqua。经用户授权，仅在独立临时目录补齐
+requirements.txt 依赖：icalendar 7.3.0、Pillow 12.3.0、tzdata 2026.3。
+未安装或更换 Python/Tk，未修改全局环境。所有运行使用合成数据。
+
+| 检查 | 本机实际结果 | 退出码 | 本地原始证据文件 |
+| --- | --- | --- | --- |
+| 初始定向检查 | 环境阻塞：缺少 icalendar，2 个模块未能加载 | 1 | `initial-targeted.log` |
+| 初始完整 check.py | 环境失败：12 个包装用例通过、10 个模块加载错误；三组 JS 通过 | 1 | `initial-full-check.log` |
+| 初始源码 self-test | 环境阻塞：导入错误触发启动对话框，未生成报告，终止本轮进程 | 1 | `initial-self-test-note.json`、`initial-self-test-startup.record.json` |
+| 补齐依赖后的定向检查 | 夹具失败：15 个方法中 24 个错误子例，临时目录路径别名不一致 | 1 | `targeted.log` |
+| 规范 TMPDIR 后定向检查 | 15 PASS：test_capture_contract 5 项、test_commit_boundary 10 项 | 0 | `targeted-canonical-tmp.log` |
+| 完整 check.py --python-timeout 600 | 202 项：201 PASS、1 SKIP、0 FAIL/ERROR；Python 22.369 秒；三组 JS PASS | 0 | `full-check.log` |
+| 源码 desktop.py --data-root <临时目录> --self-test <报告路径> | PASS；报告 status=PASS、frozen=false | 0 | `source-self-test.json`、`source-self-test.meta.json` |
+| 原生补充矩阵 | 11 PASS：8 个已有用例复核、3 个额外用例，不加到完整套件数量上 | 0 | `native-supplement.log`、`native-supplement-results.json` |
+| 真实写入中退出 | current.json 提交、wakeup.csv 导出两个阻塞点 PASS | 0 | `midwrite-quit.log`、`midwrite-quit-results.json` |
+
+唯一 SKIP 为 `test_usability.UsabilityTests.test_setup_cmd_real_exit_status_and_success_message`，
+原因 `Windows CMD entrypoint`，本机不能原生执行，不记通过。没有套用 Windows 的通过/跳过数量。
+
+Windows 跳过的 6 项 Mac 场景均在原生 Aqua 执行：
+`test_mac_quit_routes_through_safe_close_and_is_idempotent`、
+`test_dock_reopen_keeps_the_same_service`、
+`test_finder_failure_has_retry_and_keeps_export_state`、
+`test_finder_timeout_is_nonblocking_and_does_not_invalidate_files`、
+`test_command_w_closes_only_the_dialog`、
+`test_safe_quit_cancels_before_commit_and_finishes_after_commit`。
+两项包装场景也实际创建了符号链接并通过：
+`test_mac_component_preserves_symlink_without_copying_target_bytes`、
+`test_inventory_covers_both_files_and_symlinks_without_external_targets`。
+
+原生窗口重开、已有 JSON 恢复、保存目录恢复、文件选择取消由完整套件覆盖。
+额外调用 ShowPreferences / ShowHelp 系统回调，验证页面、service 身份和配置保持；
+向已显示子窗口生成 Command-W 事件，验证仅目标窗口关闭，另一个子窗口和主窗口保留。
+保存目录及下载目录选择取消也验证配置不变。Finder 非零退出与超时为合成故障注入，
+验证反馈、非阻塞和输出状态保持，不代表实际制造了 Finder 故障。
+
+安全退出使用真实 DesktopJob 非守护后台线程，并在 waiting、processing、committing、
+exporting 四阶段分别阻塞，重复调用原生 Quit 回调。提交前取消保持旧指针；提交开始后等待完成。
+另外在真实 `os.replace` 的 `data/current.json` 与 `output/wakeup.csv` 目标处阻塞，
+验证锁仍被持有、退出没有销毁窗口或设置取消标志；解除阻塞后提交和两种导出完成，
+重开可用，锁可重新获取。补充脚本保留在本地验收材料中，未写入产品或共享测试文件。
+
+首轮问题分为环境与夹具两类，均保留失败原文：
+
+- 环境缺少 icalendar。仅按本轮授权补齐临时目录依赖后复查。
+- `test_commit_boundary.py` 对未 resolve 的 tempfile root 与已经 resolve 的
+  DesktopService 路径直接执行 `relative_to`；Mac 的 `/var` 与 `/private/var` 别名
+  导致故障注入器先于预期写入失败点抛出 ValueError。只把 TMPDIR 设为同一目录的真实路径，
+  原样测试即通过。未修改共享文件；后续由共享测试负责人统一评估规范化场景 root。
+
+初次 self-test 未传 data-root，启动异常曾生成一个默认目录诊断文件；仅将该次生成的文件
+移入本地证据，后续入口使用显式临时目录。其他文件未修改。
+本轮未发现已覆盖场景中的可确认产品缺陷，没有另开产品修复分支。
+
+源码身份：APP_VERSION `1.0.0-rc12`，collector `2026-09-22.13`，frozen=false。
+构建输入指纹 `f4cee301bbf3e00f8786404a9216be322c9eaf0f3e6e349d0c2a5d4f2458da4d`。
+实际生成书签长度 55632，SHA-256
+`04ad67a9c137b23b9d05d9351ac9b8ec44f0663c20aad9a5e1fe35be7f67bd79`。
+现存历史 APP 仅核对 plist 与可执行文件哈希，未认定属于此 SHA，也未运行冻结自检。
+
+验收边界：最终 APP/EXE、签名/首次打开、实际 Dock 点击、物理 Command-Q/W、菜单点击、
+原生选择器取消按钮、真实外置盘/系统权限提示仍为 NOT RUN。
+学校短/全范围采集、网页核对、真实浏览器与手机导入分别 NOT RUN，不继承历史 PASS。
+本地套件的 WebCal 测试只使用临时回环服务，不代表线上上传。
+审查由当前代理完成；独立第二审查者 NOT RUN。产品文件及共享测试在本轮保持不变。
+
+完整验收表、原始日志、每次命令/时间/退出码、self-test、环境/冻结身份、文件哈希及补充脚本
+仅保留在本地证据包 `Mac-native-c9e196b-20260922.zip`，不上传本机路径和诊断原文。
+证据包 SHA-256：`ee9c2f091f2ead727f73fd08a3403c1e7f53e6b075c375d7b252986b7dd67d1b`。
+本次文档提交可单独 revert，不回退可靠性修复，也不改变任何课表指针或历史。
+
+<a id="reliability-commit-20260922"></a>
+## BUG-20260922-02：提交与派生输出分别报告、分别恢复
+
+基线为 BUG-20260922-01 的提交 `b157f9be4cfdadb57af82c23e23cb0da06fa243c`；
+此次独立提交只处理保存/输出边界及相应验证。提交可用
+`git log -1 --format=%H --grep='Separate committed snapshots'` 定位。
+
+根因：`publish` 在原子替换 `data/current.json` 后调用 `repair_exports`，
+任何派生写入异常会越过桌面的两种独立导出；导入开始时的修复同样会阻止重复文件或新文件恢复。
+现在先完成不可变运行和当前指针，再逐文件尝试派生输出，返回原异常映射。
+`ImportResult.committed` 表示返回的快照已提交，`duplicate` 区分同一文件，
+`output_errors` 保留输出失败；提交前异常仍抛出，不能宣称新课表已保存。
+当前指针和快照哈希验证不进入容错捕获，不回滚已确认的提交。
+
+桌面始终分别尝试 Apple 与 WakeUp。结果中的 `committed`、`apple_report/apple_issue`、
+`report/issue` 和 `output_issues` 分别表示课表、两种文件和辅助输出状态。
+提交后 collector_revision 状态写失败也不能截断独立导出。
+UI 仅补充必要的失败/恢复提示，诊断记录标记 partial 并保存原异常；未做视觉重构。
+Apple 的短暂写失败如在独立重试中恢复，最终可用状态和原始诊断分别保留。
+CLI 输出失败退出 1 并明确“已保存、未上传、可 --repair”，不把旧输出当成功结果。
+桌面重新生成及 CLI --repair 都从当前完整快照恢复，桌面仍不上传 WebCal。
+
+最小复现：`python -X utf8 -m unittest -v test_commit_boundary`。
+实际进入 `import_capture_unlocked` / `DesktopService.run`，在 `os.replace` 注入定点失败：
+首次/更新、运行目录或当前指针替换前、四个提交后派生文件、WakeUp CSV/说明/清单、
+桌面状态、重复文件、提交前取消、提交中取消、重开和无新采集恢复。
+保留锁、账号拒绝、UID/别名/sequence、取消历史和文件哈希的断言。
+改前 7 个方法中出现 22 个错误子例，退出 1：16 个为真实后置写失败越过返回路径，
+6 个为旧结果缺少新增 committed 字段，后者不单独作为根因证据。
+改后首轮 7/7 PASS；补充 CLI/账号/状态写失败后 10/10 PASS，退出 0。
+原始日志为 `local/reliability-20260922/commit-red.log`、`commit-green.log`、`commit-final.log`。
+
+原生 Windows 源码验证（Python 3.12.6、Node 24.19.0；合成数据、临时目录）：
+
+| 检查 | 实际结果 | 原始记录 |
+| --- | --- | --- |
+| 未修改基线 `check.py` | FAIL，退出 1；Python 180 秒限时，三组 JS PASS | `baseline-check.log` |
+| 未修改基线 unittest discover | 187 项：178 PASS / 1 FAIL / 8 SKIP，退出 1 | `baseline-unittest.log` |
+| 基线等待下载用例单独复查 | 1 PASS，退出 0；全套时 5 秒后台等待失败，未改该用例 | `baseline-waiter-recheck.log` |
+| 首次完整 `check.py --python-timeout 600` | 202 项：193 PASS / 1 FAIL / 8 SKIP；三组 JS PASS，退出 1 | `final-check.log` |
+| 旧 Apple 故障测试修正后复查 | 1 PASS，退出 0 | `apple-fault-recheck.log` |
+| 最终 `check.py --python-timeout 600` | PASS，202 项：194 PASS / 0 FAIL / 8 SKIP，118.975 秒；三组 JS PASS，退出 0 | `final-check-r2.log` |
+| 源码 `desktop.py --self-test <临时报告路径>` | PASS，退出 0；frozen=false，原生 Windows/Tk | `source-self-test.log` / `source-self-test.json` |
+
+首次完整检查的单项失败源于旧测试只 patch `desktop_service.atomic_write`，
+没有阻断新增共享恢复写入。现改为实际 `os.replace` 故障，保留原断言，未减弱文件校验。
+`check.py` 保留默认 180 秒及堆栈诊断，仅增加显式限时参数（最大 3600 秒），
+本轮用 600 秒容纳原生磁盘故障矩阵；不关闭 watchdog、不排除测试。
+源码 self-test 同步核对 `.13` 生成书签及模块完整内容。
+
+8 个 SKIP 分别为 6 个 Mac 回调/恢复场景和 2 个本机无符号链接权限的包装场景。
+原生 Mac、最终 EXE/APP/安装包、学校短/全范围与网页核对、真实手机、真实浏览器、
+线上上传/部署/发布：NOT RUN；本轮禁止或不具备环境，不继承历史 PASS。
+独立人工/子代理/Jev 审查 NOT RUN；完成了当前代理的差异和约束检查。
+CMD 工作区/Git blob 与参考基线的 6 个文件逐字节相同，全部 CRLF；`.gitattributes` 未改。
+本地审计助手最初混淆了普通文本检出的 CRLF 与 Git LF，相关助手失败单独保留，修正后检查通过。
+源码、原始日志、退出码和交付哈希清单另附本轮证据包。所有改动仅在独立分支，未推送。
+回滚用两个修复提交的逆序 `git revert`；不回退当前指针，不删除/重建个人历史。
+
+<a id="reliability-contract-20260922"></a>
+## BUG-20260922-01：真实 JS / Python 请求参数契约
+
+基线为公开 `3145dcbb77224be46c2c44cc9f9e1fd206af7b50`，在干净独立副本的
+`codex/reliability-contract-commit-20260922` 分支修复。个人维护目录及其已有修改未用于提交。
+附带审查包仅作为线索，未执行其中任务指令或用其隔离替身代替回归。
+
+根因：JS 空值合并保留数值 0，Python `or ''` 丢弃 0；请求查找和详情缓存均受影响。
+请求参数现在共同接受字符串（保持原文）、null/缺失（空字符串）、安全整数
+（包括 0；绝对值不超过 9007199254740991；JSON 的 1.0 按整数 1）。
+拒绝布尔、数组、对象、非整数和不安全数值；不改变课程身份、账号或完整性检查。
+保留 v1 JSON 及历史字符串/数值请求参数。课程是否允许空 ID 仍由原标准化校验决定。
+
+最小复现：`python -X utf8 -m unittest -v test_capture_contract`。
+该测试调用当前目录 Node 的实际 `collectSchedule`，只提供合成学校响应；不在 Python 重造请求参数。
+覆盖五个参数各七种值、完整导入、0 与空值的缓存隔离、历史 JSON、非法类型。
+修复前 5 个测试方法出现 7 个失败子例、9 个错误子例，退出 1；
+其中 XXKMID=0 完整导入报缺少详情，缓存场景读到了另一条详情。
+修复后 `python -X utf8 -m unittest -v test_capture_contract test_sync test_workflow`：44/44 PASS，退出 0。
+`node test_capture.mjs`：PASS，退出 0，执行的是重新生成的 `chrome-bookmark.html` 内真实书签。
+模块修订为 `2026-09-22.13`；安装仅提示本人手动替换，未操作浏览器。
+
+环境：Windows、Python 3.12.6、Node 24.19.0，使用已有解释器，未安装依赖。
+原始日志在本地 `local/reliability-20260922/contract-red.log`、`contract-green.log`、
+`bookmark-green.log` 及对应 `.exit.txt`。第一次测试桥缺少 saveCapture 的夹具错误单独保留在
+`contract-harness-fail.log`，不当作产品缺陷证据。
+基线完整 `check.py` 退出 1：Python 总限时 180 秒触发，三组 JS PASS；保留原始失败，不算通过。
+最终完整检查与源码自检见本轮第二项记录。原生 Mac、安装包、学校、手机和真实浏览器验收 NOT RUN。
+回滚使用本记录所在修复提交的 `git revert`，不回退课表指针或历史。
+
 <a id="release-rc12"></a>
 ## RELEASE-20260909-RC12：Windows 与 Mac 同步分发
 

@@ -325,7 +325,7 @@ class DesktopTests(unittest.TestCase):
         changed = item()
         changed['event'].update(Start='2026-09-07T08:10:00', End='2026-09-07T09:40:00')
         result = self.service.run(capture=write_capture(self.root, [changed], fetched=LATER))
-        self.assertIn('课表已保存', result['issue'].title)
+        self.assertEqual('课程时间与作息设置不一致', result['issue'].title)
         self.assertIsNone(result['report'])
         self.assertIsNone(self.service.ready_export())
         self.assertEqual((self.root / 'output/wakeup.csv').read_bytes(), csv)
@@ -423,11 +423,14 @@ class DesktopTests(unittest.TestCase):
         file = self.root / 'output/calendar.ics'
         file.write_bytes(b'old damaged file')
         pointer = (self.root / 'data/current.json').read_bytes()
-        def fail_calendar(path, data):
-            if Path(path) == file:
+        real_replace = sync.os.replace
+        def fail_calendar(source, destination):
+            # Both shared repair and the independent Apple exporter must see
+            # the same persistent filesystem failure.
+            if Path(destination) == file:
                 raise PermissionError('synthetic write denial')
-            sync.atomic_write(path, data)
-        with patch('desktop_service.atomic_write', side_effect=fail_calendar):
+            return real_replace(source, destination)
+        with patch('os.replace', side_effect=fail_calendar):
             result = self.service.run(export_only=True)
         self.assertIsNone(result['issue'])
         self.assertIsNone(result['apple_report'])
@@ -568,32 +571,78 @@ class DesktopTests(unittest.TestCase):
             pass
 
 
+    def test_error_copy_preserves_original_classification_inputs(self):
+        from desktop_service import explain_error
+        cases = [
+            (DataError('账号与当前记录不符'), '登录账号与当前课表不一致'),
+            (DataError('匿名校验标识不一致'), '登录账号与当前课表不一致'),
+            (DataError('学期范围不一致'), '课表与学期设置不一致'),
+            (DataError('JSON 文件错误'), '课表文件暂不可用'),
+            (DataError('数据目录断开'), '无法访问原课表文件夹'),
+            (DataError('原数据目录缺少完整版本索引，请保留目录并恢复索引，不要新建历史。'), '原课表记录不完整'),
+            (DataError('配置文件不是有效的 UTF-8 JSON；请对照 config.example.json 检查双引号、逗号和日期。'), '学期设置无法使用'),
+            (DataError('自定义作息第 3 节无效；请使用 HH:MM，保证下课晚于上课，且与上一节不重叠。'), '第 3 节时间有误'),
+            (DataError('没有已提交的完整课表，请先获取课表。'), '尚未保存课表'),
+            (sync.SyncCancelled('已取消'), '操作已取消'),
+        ]
+        for error, expected in cases:
+            with self.subTest(original=str(error)):
+                issue = explain_error(error)
+                self.assertEqual(issue.title, expected)
+                self.assertEqual(issue.detail, str(error))
+        unknown = explain_error(RuntimeError('synthetic private reason'))
+        self.assertEqual(unknown.title, '本次操作未完成')
+        self.assertEqual(unknown.detail, 'RuntimeError')
+        self.assertNotIn('已保存', unknown.next_step)
+        for apple in (False, True):
+            issue = explain_error(PermissionError('synthetic'), exporting=True, apple=apple)
+            self.assertEqual(issue.title, '文件操作未完成')
+            self.assertNotIn('已保存', issue.next_step)
+
+    def test_reveal_only_selects_a_file_and_missing_log_uses_generic_issue(self):
+        from desktop import reveal_file
+        from desktop_service import explain_error
+        target = self.root / 'synthetic-log.zip'
+        target.write_bytes(b'synthetic')
+        with patch('desktop.subprocess.Popen') as process:
+            reveal_file(target)
+        process.assert_called_once_with(['explorer.exe', '/select,', str(target.resolve())])
+        with self.assertRaises(DataError) as caught:
+            reveal_file(self.root / 'missing-log.zip')
+        issue = explain_error(caught.exception)
+        self.assertEqual(issue.title, '本次操作未完成')
+        self.assertNotIn('重新生成', issue.next_step)
+
     def test_wakeup_reminders_follow_export_instead_of_fixed_autumn_defaults(self):
         from datetime import timedelta
         from desktop import wakeup_setup_reminder
         report = self.service.run(capture=write_capture(self.root))['report']
         title, body = wakeup_setup_reminder(report)
-        self.assertIn('40 分钟', title)
+        self.assertEqual('导入后请核对日期和作息', title)
+        self.assertIn('40 分钟', body)
         self.assertIn('2026-09-07', body)
-        self.assertIn('不要保留 9 月 4 日', body)
+        self.assertNotIn('不要保留 9 月 4 日', body)
+        self.assertNotIn('50 分钟', body)
 
         # Another valid time table/term must not receive this autumn's instructions.
         report = json.loads(json.dumps(report))
         report['first_monday'] = '2027-03-01'
         for number, (start, end) in report['slot_times'].items():
             hour, minute, second = map(int, start.split(':'))
-            later = timedelta(hours=hour, minutes=minute + 45)
+            later = timedelta(hours=hour, minutes=minute + 50)
             seconds = int(later.total_seconds())
             report['slot_times'][number] = [start, f'{seconds // 3600:02}:{seconds // 60 % 60:02}:00']
         title, body = wakeup_setup_reminder(report)
-        self.assertIn('45 分钟', title)
+        self.assertIn('50 分钟', body)
         self.assertIn('2027-03-01', body)
         self.assertNotIn('40 分钟', title + body)
         self.assertNotIn('9 月', title + body)
         report['slot_times']['1'][1] = '08:30:00'
         title, body = wakeup_setup_reminder(report)
-        self.assertIn('逐节', title)
-        self.assertIn('本次各节时长不同', body)
+        self.assertEqual('导入后请核对日期和作息', title)
+        self.assertIn('逐节', body)
+        self.assertIn('各节课时长不同', body)
+        self.assertNotIn('每节课时长：', body)
 
 
 class DesktopWidgetTests(unittest.TestCase):
@@ -710,17 +759,22 @@ class DesktopWidgetTests(unittest.TestCase):
         from tkinter import ttk
         return {str(widget.cget('text')): widget for widget in self.widgets(ui) if isinstance(widget, ttk.Button)}
 
+    def file_buttons(self, ui=None):
+        from tkinter import ttk
+        return [w for w in self.widgets(ui) if isinstance(w, ttk.Button)
+                and str(w.cget('text')) == '打开文件位置']
+
     def test_startup_resumes_bookmark_guide_until_first_capture(self):
         import tkinter as tk
         from desktop import AssistantWindow
-        self.assertIn('就用这个学期，下一步', self.buttons())
-        self.buttons()['就用这个学期，下一步'].invoke()
+        self.assertIn('确认学期并继续', self.buttons())
+        self.buttons()['确认学期并继续'].invoke()
         self.assertIn('复制安装页地址', self.buttons())
-        self.assertNotIn('获取我的课表', self.buttons())
-        self.buttons()['我已添加课表按钮，进入助手'].invoke()
-        self.assertIn('获取我的课表', self.buttons())
-        self.assertIn('重新查看书签安装引导', self.buttons())
-        self.assertIn('首次导入 · 下一步获取课表',
+        self.assertNotIn('获取课表', self.buttons())
+        self.buttons()['已添加书签，继续'].invoke()
+        self.assertIn('获取课表', self.buttons())
+        self.assertIn('查看书签安装说明', self.buttons())
+        self.assertIn('首次使用',
                       [str(w.cget('text')) for w in self.widgets() if 'text' in w.keys()])
         for captured in (False, True):
             with self.subTest(captured=captured):
@@ -733,7 +787,7 @@ class DesktopWidgetTests(unittest.TestCase):
                 try:
                     window.update_idletasks()
                     self.assertEqual('复制安装页地址' in self.buttons(reopened), not captured)
-                    self.assertEqual('获取我的课表' in self.buttons(reopened), captured)
+                    self.assertEqual('重新获取课表' in self.buttons(reopened), captured)
                     self.assertEqual(reopened.canvas.yview()[0], 0.0)
                     reopened.nav_buttons[0].invoke()
                     self.assertEqual('复制安装页地址' in self.buttons(reopened), not captured)
@@ -750,8 +804,10 @@ class DesktopWidgetTests(unittest.TestCase):
             self.window.update_idletasks()
             buttons = self.buttons()
             with patch('desktop.reveal_file', return_value=Mock(poll=Mock(return_value=0))) as reveal:
-                buttons['导出 WakeUp 文件'].invoke()
-                buttons['导出苹果日历'].invoke()
+                files = self.file_buttons()
+                self.assertEqual(len(files), 2)
+                files[0].invoke()
+                files[1].invoke()
                 self.assertEqual([call.args[0] for call in reveal.call_args_list],
                     [self.ui.service.root / 'output/wakeup.csv', self.ui.service.root / 'output/calendar.ics'])
         (self.ui.service.root / 'output/calendar.ics').write_bytes(b'tampered')
@@ -774,10 +830,10 @@ class DesktopWidgetTests(unittest.TestCase):
         reopened = AssistantWindow(window, Path(self.temp.name))
         try:
             self.assertIn('复制安装页地址', self.buttons(reopened))
-            self.assertIn('文件已经下载', self.buttons(reopened))
+            self.assertIn('选择已下载的课表', self.buttons(reopened))
             with patch('desktop.filedialog.askopenfilename', return_value=str(capture)), \
                     patch('desktop_service.wait_capture', side_effect=AssertionError('must use selected JSON')):
-                self.buttons(reopened)['文件已经下载'].invoke()
+                self.buttons(reopened)['选择已下载的课表'].invoke()
                 # Use the application's normal event loop, with a Tk deadline.
                 # Nested update() may never drain Aqua Tk 8.6's native events.
                 def finish_when_ready():
@@ -796,23 +852,25 @@ class DesktopWidgetTests(unittest.TestCase):
             self.assertIsNotNone(reopened.service.ready_export())
             self.assertIsNotNone(reopened.service.ready_apple_export())
             with patch('desktop.reveal_file', return_value=Mock(poll=Mock(return_value=0))) as reveal:
-                self.buttons(reopened)['导出 WakeUp 文件'].invoke()
-                self.buttons(reopened)['导出苹果日历'].invoke()
+                files = self.file_buttons(reopened)
+                self.assertEqual(len(files), 2)
+                files[0].invoke()
+                files[1].invoke()
                 self.assertEqual([call.args[0] for call in reveal.call_args_list],
                     [reopened.service.root / 'output/wakeup.csv', reopened.service.root / 'output/calendar.ics'])
             self.assertEqual(capture.read_bytes(), before)
             self.assertEqual(reopened.service.state()['bookmark_ack'], bookmark_ack)
             reopened.show_home()
-            self.assertIn('获取我的课表', self.buttons(reopened))
+            self.assertIn('重新获取课表', self.buttons(reopened))
         finally:
             reopened.dispose()
 
     def test_setup_file_picker_cancel_keeps_setup_and_does_not_import(self):
         self.ui.confirm_term()
         before = self.ui.service.state()
-        self.assertIn('文件已经下载', self.buttons())
+        self.assertIn('选择已下载的课表', self.buttons())
         with patch('desktop.filedialog.askopenfilename', return_value=''):
-            self.buttons()['文件已经下载'].invoke()
+            self.buttons()['选择已下载的课表'].invoke()
         self.assertFalse(self.ui.running)
         self.assertFalse(self.ui.job.busy)
         self.assertFalse(self.ui.job.picker_open.is_set())
@@ -833,8 +891,16 @@ class DesktopWidgetTests(unittest.TestCase):
                     result = self.ui.service.run(export_only=True)
                 self.ui.show_result(result)
                 buttons = self.buttons()
-                self.assertEqual(buttons['导出 WakeUp 文件'].instate(['disabled']), fail_wakeup)
-                self.assertEqual(buttons['导出苹果日历'].instate(['disabled']), fail_apple)
+                files = self.file_buttons()
+                self.assertEqual(len(files), 2)
+                self.assertEqual(files[0].instate(['disabled']), fail_wakeup)
+                self.assertEqual(files[1].instate(['disabled']), fail_apple)
+                shown = [str(w.cget('text')) for w in self.widgets() if 'text' in w.keys()]
+                expected = ('导入文件未生成，请查看下方原因后重试。' if fail_wakeup and fail_apple else
+                            '部分导入文件未生成，请查看下方状态。已生成的文件仍可使用。')
+                self.assertIn(expected, shown)
+                self.assertEqual('使用已生成的文件时，请在手机手动导入并核对。' in shown,
+                                 fail_wakeup != fail_apple)
                 self.assertIn('重新生成导入文件', buttons)
 
     def test_phone_confirmations_are_separate_and_reject_a_changed_guide(self):
@@ -875,7 +941,49 @@ class DesktopWidgetTests(unittest.TestCase):
             self.window.update_idletasks()
             self.assertEqual(self.ui.canvas.yview()[0], 0.0)
             self.assertFalse(any(isinstance(widget, ttk.Treeview) for widget in self.widgets()))
-            self.assertIn('我已在苹果日历导入并核对', self.buttons())
+            self.assertIn('我已导入并核对', self.buttons())
+
+    def test_work_copy_uses_existing_browser_state_and_preserves_diagnostic_input(self):
+        self.ui.browser_collection = True
+        self.ui.show_work()
+        shown = lambda: [str(w.cget('text')) for w in self.widgets() if 'text' in w.keys()]
+        self.assertIn('在浏览器获取课表', shown())
+        self.assertIn('读取进度请看教务网页；助手收到文件后会继续处理。', shown())
+        raw = '收到失败诊断 synthetic；仍在等待'
+        self.ui.job.events.put(('waiting', raw))
+        self.window.after_cancel(self.ui.poll_id)
+        self.ui.poll()
+        self.assertEqual(self.ui.details[-1], raw)
+        self.assertEqual(self.ui.status.get(), '浏览器读取未完成，请按网页提示处理。助手仍在等待课表文件。')
+        self.ui.job.events.put(('processing', '正在检查课表文件…'))
+        self.window.after_cancel(self.ui.poll_id)
+        self.ui.poll()
+        self.assertIn('处理课表', shown())
+        self.assertNotIn('读取进度请看教务网页；助手收到文件后会继续处理。', shown())
+        self.assertEqual(self.ui.status.get(), '正在检查课表文件…')
+
+    def test_both_success_and_wakeup_confirmation_stale_hash_copy(self):
+        result = self.ui.service.run(capture=write_capture(Path(self.temp.name)))
+        self.ui.show_result(result)
+        shown = [str(w.cget('text')) for w in self.widgets() if 'text' in w.keys()]
+        self.assertIn('导入文件已生成', shown)
+        self.assertIn('与上次相比：新增 1 次 · 移除 0 次 · 修改 0 次', shown)
+        self.assertNotIn('使用已生成的文件时，请在手机手动导入并核对。', shown)
+        self.ui.show_phone()
+        self.ui.confirm_phone()
+        saved_hash = self.ui.service.state()['phone_confirmed_csv']
+        self.ui.show_phone()
+        changed = item()
+        changed['details'][0]['Teacher'] = '合成变更教师'
+        self.ui.service.run(capture=write_capture(Path(self.temp.name), [changed], fetched=LATER))
+        self.ui.confirm_phone()
+        self.assertEqual(self.ui.service.state()['phone_confirmed_csv'], saved_hash)
+        shown = [str(w.cget('text')) for w in self.widgets() if 'text' in w.keys()]
+        self.assertIn('WakeUp 文件已变化或不可用', shown)
+        self.ui.show_phone()
+        self.ui.confirm_phone()
+        self.assertEqual(self.ui.service.state()['phone_confirmed_csv'], self.ui.service.ready_export()['csv_sha256'])
+        self.assertNotIn('phone_confirmed_ics', self.ui.service.state())
 
 
 if __name__ == '__main__':

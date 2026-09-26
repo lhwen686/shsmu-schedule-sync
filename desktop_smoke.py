@@ -48,13 +48,13 @@ def self_test(report_path):
             page = service.bookmark_path.read_text(encoding='utf-8')
             bookmark = html.unescape(re.search(r'<a class="bookmark" href="([^"]+)"', page)[1])
             script = unquote(bookmark.removeprefix('javascript:'))
-            assert "const revision = '2026-09-08.12';" in script
+            assert "const revision = '2026-09-26.14';" in script
             for name in BROWSER_MODULES:
                 body = (service.resources / name).read_text(encoding='utf-8').replace('export ', '', 1)
                 assert body in script, f'安装页未包含完整资源：{name}'
             assert '课表助手 · v${revision}' in script
             assert 'Safari' in page
-            report.update(app_version=APP_VERSION, collector_revision='2026-09-08.12',
+            report.update(app_version=APP_VERSION, collector_revision='2026-09-26.14',
                           generated_bookmark_sha256=hashlib.sha256(bookmark.encode()).hexdigest(),
                           generated_bookmark_length=len(bookmark), bundled_bookmark_verified=True)
             def shown(text):
@@ -64,20 +64,20 @@ def self_test(report_path):
             window = tk.Tk()
             window.withdraw()
             ui = AssistantWindow(window, root)
-            assert shown('选择要导入的学期')
+            assert shown('选择学期')
             ui.confirm_term()
-            assert shown('给浏览器添加课表按钮')
+            assert shown('安装课表书签')
             ui.confirm_bookmark()
-            assert shown('首次导入 · 下一步获取课表')
+            assert shown('首次使用')
             ui.dispose()
             window, ui = None, None
             window = tk.Tk()
             window.withdraw()
             ui = AssistantWindow(window, root)
             window.update_idletasks()
-            assert shown('给浏览器添加课表按钮')
-            assert not shown('每次更新，只走这条流程')
-            assert shown('文件已经下载')
+            assert shown('安装课表书签')
+            assert not shown('我的课表')
+            assert shown('选择已下载的课表')
             ui.dispose()
             window, ui = None, None
             row = {'ID': 12, 'Curriculum': '运行验证课程', 'CurriculumID': 99,
@@ -196,7 +196,7 @@ def self_test(report_path):
             window = tk.Tk()
             window.withdraw()
             ui = AssistantWindow(window, manual.root)
-            assert shown('每次更新，只走这条流程')
+            assert shown('我的课表')
             assert manual.ready_export() is not None and manual.ready_apple_export() is not None
             assert 'bookmark_ack' not in manual.state()
             ui.dispose()
@@ -205,7 +205,7 @@ def self_test(report_path):
             window = tk.Tk()
             window.withdraw()
             ui = AssistantWindow(window, root)
-            assert shown('每次更新，只走这条流程')
+            assert shown('我的课表')
             ui.show_setup(2)
             window.update_idletasks()
             ui.show_result(result)

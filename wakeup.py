@@ -145,41 +145,18 @@ def build_export(snapshot, bundle, times=None):
         'observed_start_slots': sorted(observed_start), 'observed_end_slots': sorted(observed_end),
         'slot_times': times, 'custom_times': custom_times,
     }
-    lines = [
-        'WakeUp 课程表：iOS 手动导入说明', '',
-        f"学期：{scope['semester']}；有效课程：{len(rows)} 次（CSV 每行对应一次实际课程）",
-        f"学校数据采集时间（UTC）：{report['capture_fetched_at']}",
-        f"本次已公布课程：{report['course_start']} 至 {report['course_end']}；以后新公布的课程以再次采集为准。",
-        '本次仅从已保存的完整快照导出，没有重新访问学校。', '',
-        '1. 将 wakeup.csv 保存到 iPhone 的“文件”App。',
-        '2. WakeUp → 导入课表 → Excel 导入 → 选取 CSV 文件 → 导入到新课表。',
-        '3. 在课表设置中设置以下日期和作息；CSV 本身不携带这些设置。',
-        f"   学期开始日期：{first_monday.isoformat()}（第一周周一）",
-        f"   WakeUp 课表周数：{report['semester_weeks']}（按本次课程的最大教学周计算）；一天课程节数：14；每周从周一开始。",
-        '4. 按下表设置上课时间；若无法逐项修改下课时间，关闭“每节课时长相同”。',
-        '5. 核对首周、晚间课程和不连续周次，再决定是否删除旧课表。', '',
-        '作息表（“已确认”仅表示原始课程明确给出了该起点或终点）：',
-        '节次\t上课\t上课依据\t下课\t下课依据',
-    ]
-    unobserved = '自定义' if custom_times else '推算'
+    years, term = scope['semester'].split(':')
+    timetable = []
+    unobserved = '自定义' if custom_times else '模板推算'
     for number, (start, end) in times.items():
-        lines.append(f"{number}\t{start[:5]}\t{'已确认' if number in observed_start else unobserved}\t"
-                     f"{end[:5]}\t{'已确认' if number in observed_end else unobserved}")
-    lines += [
-        '', ('自定义作息来源：local/wakeup-slots.json；未被原始课程端点确认的时间标为“自定义”。' if custom_times else
-             '推算规则：第 1–5 节从 08:00 起，第 6–14 节从 13:30 起；每节 40 分钟，相邻节次间隔 10 分钟。'),
-        ('全部有效课程起止时间已与表中节次核对；“自定义”边界由本人配置，不代表学校已确认。' if custom_times else
-         '全部有效课程的实际起止时间均已与表中对应节次核对；中间休息时间部分仍为推算，这不是学校官方作息表。'),
-        '仅导出课程名称、星期、节次、教师、地点、周数；授课内容和备注不在 WakeUp 七列模板中。',
-        '课程时间重叠时保留全部课程，请在 App 中检查冲突显示。', '',
-        '以后更新：先完成原来的课表同步，再双击“导出 WakeUp 课表.cmd”，将新 CSV 手动导入到新课表。',
-        'WakeUp 不会自动跟随该文件更新；重复导入的覆盖和删除行为尚未验证。',
-        '导入后请自行核对课程与作息；本地转换校验不能代替当前设备上的实际检查。',
-        'CSV 包含个人课程信息，请勿公开分享。', '',
-        '官方导入教程：https://www.wakeup.fun/doc/import_from_csv.html',
-        '官方课表设置：https://www.wakeup.fun/doc/settings/schedule_settings.html',
-        f"本说明对应 CSV 的 SHA-256：{report['csv_sha256']}",
-    ]
+        timetable.append(f"{number}\t{start[:5]}\t{'教务课表' if number in observed_start else unobserved}\t"
+                         f"{end[:5]}\t{'教务课表' if number in observed_end else unobserved}")
+    time_source = ('时间来自你的自定义设置；未在学校课程中明确出现的时间标为“自定义”。' if custom_times else
+                   '未在学校课程中明确出现的时间标为“模板推算”，请结合本人实际作息核对。')
+    guide = 'WakeUp 导入与作息设置（iPhone）\n\n学期：{semester_label}\n文件包含：{event_count} 次课程\n课表获取时间（UTC）：{capture_fetched_at}\n当前课程日期：{course_start} 至 {course_end}\n\n本文件由已保存的课表生成。教务新增或调整课程后，需要重新获取课表。\n\n一、导入课表\n1. 将 wakeup.csv 发到 iPhone，保存到“文件”App。\n2. 在 WakeUp 打开导入入口，选择“Excel 导入 → 选取 CSV 文件”。\n3. 选择 wakeup.csv，导入为新课表。\n4. 按下方信息设置日期、周数和作息，再核对课程。\n\n二、课表设置\n学期开始日期：{first_monday}（第 1 周周一）\n课表周数：{semester_weeks} 周（按本次课程计算）\n每天节数：14 节\n每周开始：周一\n\nCSV 不会自动设置学期日期和作息。需要逐节修改下课时间时，关闭“每节课时长相同”。\n\n三、作息时间\n节次\t上课时间\t上课时间来源\t下课时间\t下课时间来源\n{timetable}\n\n“教务课表”表示该时间在学校课程中有明确记录；其他时间由模板或你的设置补齐。\n所有实际课程的起止时间均已按对应节次核对，但此表不等同于学校官方作息表。\n{time_source}\n\n四、导入后核对\n重点核对第 1 周、晚课和间隔周上课的课程，并检查时间重叠的课程是否正常显示。\n本文件包含课程名称、星期、节次、教师、地点和周数；不包含授课内容和备注。\n\n五、之后如何更新\n在助手中重新获取课表，将新生成的 wakeup.csv 导入为新课表。\n核对无误后再处理旧课表，避免重复显示。手机不会自动跟随电脑文件更新。\n重复导入不保证覆盖或删除旧课程；请以手机实际显示为准。\n命令行版仍可运行“导出 WakeUp 课表.cmd”生成文件。\n\n文件包含个人课表信息，请勿公开分享。\n\n官方 CSV 导入说明：https://www.wakeup.fun/doc/import_from_csv.html\n官方课表设置说明：https://www.wakeup.fun/doc/settings/schedule_settings.html\n对应 CSV 的 SHA-256：{csv_sha256}'
+    lines = guide.format(
+        semester_label=f'{years} 学年 · 第 {term} 学期',
+        timetable='\n'.join(timetable), time_source=time_source, **report).split('\n')
     return csv_bytes, ('\r\n'.join(lines) + '\r\n').encode('utf-8-sig'), report
 
 

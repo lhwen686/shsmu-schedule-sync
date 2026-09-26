@@ -11,10 +11,10 @@ import time
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from core import DataError, content_hash, export_ics, human_diff, ids, normalize, parse_time, reconcile
-from source import CaptureSource, LoginRequired, SourceError, request_key, scrub, write_json
+from source import CaptureSource, LoginRequired, SourceError, detail_params, request_key, scrub, write_json
 from prepare import build_bookmark, downloads_folder
 from diagnostics import notify
 from webcal import UploadError, publish_current
@@ -37,6 +37,10 @@ class ImportResult:
     diff: dict
     duplicate: bool = False
     collector_revision: str = ''
+    # A result is returned only for a verified committed snapshot (also on a
+    # duplicate). Precommit failures still raise and cannot claim a new commit.
+    committed: bool = True
+    output_errors: dict = field(default_factory=dict)
 
 
 def month_ranges(start, end):
@@ -142,8 +146,7 @@ def fetch_complete(source, config, run_dir, progress=print, cancel=None, observe
     items, detail_cache = [], {}
     for index, row in enumerate(all_rows, 1):
         check_cancelled(cancel)
-        key = request_key('/Home/GetCalendarTable', {k: str(row.get(k) or '') for k in
-                          ('MCSID', 'CSID', 'CurriculumID', 'XXKMID', 'CurriculumType')})
+        key = request_key('/Home/GetCalendarTable', detail_params(row))
         if key not in detail_cache:
             result = source.details(row)
             notify(observe, 'detail_read', index=index, count=len(result) if isinstance(result, list) else None)
@@ -189,16 +192,34 @@ def load_current(root):
     return snapshot
 
 
-def repair_exports(root):
+def repair_exports(root, *, errors=None):
+    """Rebuild independent derived files; current.json remains authoritative.
+
+    With an error collector, preserve each failure and attempt every output.
+    Without it (e.g. --repair), raise after all attempts, never report success.
+    Snapshot/hash validation always raises, independently of output handling.
+    """
     snapshot = load_current(root)
     if snapshot is None:
         return False
     pointer = json.loads((root / "data/current.json").read_text(encoding="utf-8"))
     run = root / "data/runs" / pointer["run_id"]
-    atomic_write(root / "data/schedule.json", json_bytes(snapshot))
-    atomic_write(root / "output/calendar.ics", export_ics(snapshot))
-    for name in ("changes.json", "changes.txt"):
-        atomic_write(root / "output" / name, (run / name).read_bytes())
+    failures = {}
+    outputs = {
+        'data/schedule.json': lambda: json_bytes(snapshot),
+        'output/calendar.ics': lambda: export_ics(snapshot),
+        'output/changes.json': lambda: (run / 'changes.json').read_bytes(),
+        'output/changes.txt': lambda: (run / 'changes.txt').read_bytes(),
+    }
+    for target, content in outputs.items():
+        try:
+            atomic_write(root / target, content())
+        except Exception as error:
+            failures[target] = error
+    if errors is not None:
+        errors.update(failures)
+    elif failures:
+        raise next(iter(failures.values()))
     return True
 
 
@@ -214,7 +235,9 @@ def publish(root, run_dir, snapshot, diff, previous):
         atomic_write(root / "data/previous.json", json_bytes(previous))
     pointer = {"run_id": run_dir.name, "schedule_hash": content_hash(snapshot)}
     atomic_write(root / "data/current.json", json_bytes(pointer))
-    repair_exports(root)
+    errors = {}
+    repair_exports(root, errors=errors)
+    return errors
 
 
 @contextlib.contextmanager
@@ -319,7 +342,6 @@ def import_capture_unlocked(root, config, capture_path, *, new_term=False, progr
     check_cancelled(cancel)
     previous = load_current(root)
     notify(observe, 'previous_loaded', previous=previous)
-    repair_exports(root)
     source = CaptureSource(capture_path, config)
     notify(observe, 'input_validated', input=source.capture)
     capture_hash = content_hash({k: v for k, v in source.capture.items() if k != 'diagnostics'})
@@ -327,9 +349,12 @@ def import_capture_unlocked(root, config, capture_path, *, new_term=False, progr
     if previous and previous.get('capture_hash') == capture_hash:
         notify(observe, 'duplicate_capture', duplicate=True)
         progress("该文件已经处理，没有新的实时采集；当前课表与日历保持原版本。")
+        errors = {}
+        repair_exports(root, errors=errors)
         return ImportResult(previous, {'synced_at': previous['synced_at'],
                             'summary': {'ADDED': 0, 'REMOVED': 0, 'CHANGED': 0},
-                            'changes': [], 'warnings': previous.get('warnings', [])}, True, revision)
+                            'changes': [], 'warnings': previous.get('warnings', [])}, True, revision,
+                            output_errors=errors)
     fetched_at = source.capture.get('fetched_at', '')
     try:
         fetched_time = datetime.fromisoformat(fetched_at.replace('Z', '+00:00'))
@@ -369,11 +394,15 @@ def import_capture_unlocked(root, config, capture_path, *, new_term=False, progr
     if on_commit is not None:
         on_commit()
     notify(observe, 'commit_started')
-    publish(root, run_dir, snapshot, diff, previous)
+    errors = publish(root, run_dir, snapshot, diff, previous)
     notify(observe, 'commit_finished', success=True)
     progress(human_diff(diff))
-    progress(f"本地已保存 {len(events)} 个有效事件。日历：{root / 'output/calendar.ics'}")
-    return ImportResult(snapshot, diff, False, revision)
+    progress(f"本地已保存 {len(events)} 个有效事件。")
+    if errors:
+        progress('课表已提交，部分输出未生成；可从已保存课表重新生成，无需重新采集。')
+    else:
+        progress(f"日历：{root / 'output/calendar.ics'}")
+    return ImportResult(snapshot, diff, False, revision, output_errors=errors)
 
 
 def main(argv=None):
@@ -399,8 +428,14 @@ def main(argv=None):
                 publish_current(ROOT, required=True)
                 return 0
             if args.repair:
-                if not repair_exports(ROOT):
+                errors = {}
+                if not repair_exports(ROOT, errors=errors):
                     raise DataError("尚无完整课表可恢复；请先运行“同步课表.cmd”完成一次采集。")
+                if errors:
+                    for target, error in errors.items():
+                        print(f'课表已保存，输出恢复失败：{target} ({type(error).__name__})', file=sys.stderr)
+                    print('修正文件权限或磁盘问题后可再次运行 --repair，无需重新采集。', file=sys.stderr)
+                    return 1
                 print("已从完整快照恢复输出。")
                 return 0
             if not args.config.exists():
@@ -418,6 +453,11 @@ def main(argv=None):
                 capture_path = select_capture(folder) if args.select_capture else wait_capture(folder)
             result = import_capture_unlocked(ROOT, config, capture_path, new_term=args.new_term,
                                               progress=lambda text: print(text, flush=True))
+            if result.output_errors:
+                for target, error in result.output_errors.items():
+                    print(f'课表已保存，输出失败：{target} ({type(error).__name__})', file=sys.stderr)
+                print('请运行 --repair 从已保存课表恢复；无需重新采集，本次未上传。', file=sys.stderr)
+                return 1
             if result.diff['changes'] and (ROOT / 'output/wakeup.csv').exists():
                 print("课表已变化；已有 WakeUp CSV 仍是旧文件，请再双击“导出 WakeUp 课表.cmd”。")
             publish_current(ROOT)

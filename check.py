@@ -1,4 +1,5 @@
 """Run every local synthetic test suite without changing personal outputs."""
+import argparse
 import shutil
 import subprocess
 import sys
@@ -7,7 +8,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--python-timeout', type=int, default=180,
+                        help='Python suite watchdog in seconds (default: 180, maximum: 3600)')
+    args = parser.parse_args(argv)
+    if not 1 <= args.python_timeout <= 3600:
+        parser.error('--python-timeout must be between 1 and 3600 seconds')
     node = shutil.which('node')
     if not node:
         print('检查需要 Node.js；请安装后重新打开终端再运行。日常同步不依赖 Node.js。', file=sys.stderr)
@@ -15,7 +22,7 @@ def main():
     # A stuck native dialog or Tk callback must leave a traceback rather than
     # waiting for the CI runner's much longer whole-job timeout.
     runner = ('import faulthandler, sys, unittest; '
-              'faulthandler.dump_traceback_later(180, exit=True); '
+              f'faulthandler.dump_traceback_later({args.python_timeout}, exit=True); '
               'sys.argv[0] = "unittest"; unittest.main(module=None)')
     commands = [[sys.executable, '-X', 'utf8', '-c', runner,
                  'discover', '-s', str(ROOT), '-p', 'test_*.py', '-v']]

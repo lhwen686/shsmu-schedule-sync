@@ -105,7 +105,7 @@ class PlatformTests(unittest.TestCase):
             with self.assertRaisesRegex(SourceError, '无法读取下载文件夹') as error:
                 wait_capture(self.root, timeout=0, progress=lambda text: None)
         issue = explain_error(error.exception)
-        self.assertIn('文件已经下载', issue.next_step)
+        self.assertIn('选择已下载的课表', issue.next_step)
 
     def test_manual_picker_opens_even_when_download_directory_stat_is_denied(self):
         folder = Mock()

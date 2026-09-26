@@ -3,6 +3,7 @@
 Python never opens browsers or reads browser profiles, cookies or credentials.
 """
 import json
+import math
 import re
 from pathlib import Path
 
@@ -28,8 +29,33 @@ def write_json(path: Path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(scrub(value), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
+def parameter_text(value):
+    """Request contract shared with browser_capture.mjs, including old v1 JSON.
+
+    Missing/null is empty; strings are unchanged; safe integral JSON numbers
+    use decimal text (including 0). Booleans/containers/fractions are invalid.
+    This is transport normalization, not relaxed course identity validation.
+    """
+    if value is None:
+        return ''
+    if isinstance(value, str):
+        return value
+    if (type(value) in (int, float) and abs(value) <= 9007199254740991
+            and math.isfinite(value) and int(value) == value):
+        return str(int(value))
+    raise SourceError('教学日历请求参数类型无效；只支持字符串、空值或安全整数。')
+
+
+def detail_params(event, slot_ids=None):
+    params = {key: parameter_text(event.get(key)) for key in
+              ('MCSID', 'CSID', 'CurriculumID', 'XXKMID', 'CurriculumType')}
+    if slot_ids is not None:
+        params['MCSID'] = ','.join(slot_ids)
+    return params
+
+
 def request_key(path, params):
-    normalized = {k: str(v) for k, v in params.items()}
+    normalized = {k: parameter_text(v) for k, v in params.items()}
     if "MCSID" in normalized:
         normalized["MCSID"] = ",".join(sorted(set(re.findall(r"\d+", normalized["MCSID"])), key=int))
     return path + "?" + json.dumps(normalized, sort_keys=True, ensure_ascii=True)
@@ -89,8 +115,4 @@ class CaptureSource:
         return data
 
     def details(self, event, slot_ids=None):
-        return self.request("/Home/GetCalendarTable", {
-            "MCSID": str(event.get("MCSID") or "") if slot_ids is None else ",".join(slot_ids),
-            "CSID": str(event.get("CSID") or ""), "CurriculumID": str(event.get("CurriculumID") or ""),
-            "XXKMID": str(event.get("XXKMID") or ""), "CurriculumType": str(event.get("CurriculumType") or ""),
-        })
+        return self.request("/Home/GetCalendarTable", detail_params(event, slot_ids))
