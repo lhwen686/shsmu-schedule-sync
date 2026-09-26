@@ -1,12 +1,12 @@
 # SHSMU timetable synchronizer
 
-Read [PROJECT_STATUS.md](PROJECT_STATUS.md) for the current baseline, then use the [task map](MAINTENANCE.md#task-map) to select relevant modules and tests. README is for student instructions; VERIFICATION is an evidence index, not a mandatory full-history read. The user's current task limits take precedence; listed commands are not authorization to run them.
+Use [PROJECT_STATUS.md](PROJECT_STATUS.md#baseline) for version/source-of-truth questions, the [task map](MAINTENANCE.md#task-map) for affected modules and checks, README for student instructions, and VERIFICATION for specific evidence. Read only what the task needs; dated status and old PASS records are not current runtime evidence.
 
 ## Maintenance
 
-- Keep changes scoped and dependencies small. Use the existing repair record, review and rollback workflow in [MAINTENANCE.md](MAINTENANCE.md#fix-workflow); do not introduce a second tracking system or a multi-agent framework.
+- For a product fix or release, use the existing [maintenance workflow](MAINTENANCE.md#fix-workflow); do not introduce another tracking system or a multi-agent framework. Small instruction/document edits need only relevant validation and a recoverable diff.
 - Confirm the repository, branch, HEAD and existing changes before editing. Follow the source-of-truth boundary in [PROJECT_STATUS.md](PROJECT_STATUS.md#baseline). Never publish private repository history or overwrite unrelated uncommitted files.
-- Select checks by impact using [verification gates](MAINTENANCE.md#verification-gates). Distinguish PASS, FAIL and NOT RUN, including skipped checks. School acceptance requires a short range, full coverage, at least 10 page cross-checks and a repeat sync without false changes; synthetic tests and old acceptance do not prove a new release's live behavior.
+- Complete the requested change, relevant checks and fixes for introduced failures. Select checks using [verification gates](MAINTENANCE.md#verification-gates); safe local fixture tests need no step-by-step approval. Preserve release/school/phone gates and distinguish PASS, FAIL and NOT RUN; synthetic or historical evidence cannot prove current live behavior.
 - Preserve CRLF bytes in CMD repository blobs and ZIP downloads. Keep the existing `*.cmd -text` attribute; do not globally normalize line endings.
 
 ## Data and browser invariants

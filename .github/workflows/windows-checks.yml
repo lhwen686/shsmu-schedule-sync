@@ -25,7 +25,7 @@ jobs:
       - name: Install pinned runtime dependencies
         run: python -m pip install -r requirements.txt
       - name: Python, JavaScript and real CMD checks
-        run: python -X utf8 check.py
+        run: python -X utf8 check.py --python-timeout 600
       - name: Source runtime self-test
         run: python -X utf8 desktop.py --data-root "${{ runner.temp }}/shsmu-source-data" --self-test "${{ runner.temp }}/shsmu-self-test.json"
       - name: Show self-test evidence

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
+import {execFileSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {webcrypto} from 'node:crypto';
 import {collectSchedule} from './browser_capture.mjs';
 import {browserDiagnostic} from './browser_diagnostics.mjs';
@@ -46,7 +48,15 @@ for (const title of [null,'2026-2027 学年 第2 学期']) {
   await assert.rejects(()=>collectSchedule(config,{fetchJSON:async()=>({Title:title,List:[row]}),accountKey:async()=> 'a'.repeat(64),saveCapture:async()=>assert.fail('invalid term download'),status:()=>{}}),/返回学期/);
 }
 
-const html=await fs.readFile(new URL('./chrome-bookmark.html',import.meta.url),'utf8');
+const html = execFileSync(process.env.SHSMU_TEST_PYTHON || 'python', ['-X', 'utf8', '-c', `
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from prepare import build_bookmark
+with TemporaryDirectory(prefix='shsmu-bookmark-copy-') as folder:
+    root = Path(folder)
+    build_bookmark(root, {'semester':'2026-2027:1','start':'2026-09-07','end_exclusive':'2027-01-18'}, resources=Path.cwd())
+    print((root/'chrome-bookmark.html').read_text(encoding='utf-8'))
+`], {cwd:fileURLToPath(new URL('.', import.meta.url)), encoding:'utf8', maxBuffer:4*1024*1024});
 const href=html.match(/class="bookmark" href="([^"]+)"/)[1].replaceAll('&amp;','&').replaceAll('&#x27;',"'");
 const script=decodeURIComponent(href.slice('javascript:'.length));
 new vm.Script(script);
@@ -115,17 +125,17 @@ if(options.unsupported) {
 }
 assert.equal(alerts.length,0,'unexpected alert: '+alerts.join('\n'));
 if(options.wrongSemester) {
-  assert.match(panels[0].textContent,/返回学期 2026-2027:2/);
-  assert.match(panels[0].textContent,/手动替换旧书签/);
+  assert.match(panels[0].textContent,/学校返回：2026-2027:2/);
+  assert.match(panels[0].textContent,/再更新书签/);
   assert.equal(JSON.parse(await blobs[0].text()).format,'shsmu-diagnostic-v1');
   assert.equal(calls.length,1);
   return;
 }
 if(options.blockDownload) {
   assert.equal(blobs.length,0);
-  assert.match(panels[0].textContent,/下载未能发起/);
+  assert.match(panels[0].textContent,/未能开始下载/);
   const count=calls.length;
-  await descendants(panels[0]).find(child=>child.textContent==='重新下载采集文件').click();
+  await descendants(panels[0]).find(child=>child.textContent==='重新下载课表文件').click();
   assert.equal(calls.length,count,'retry download must not contact school');
 }
 if(wrongPage) {
@@ -140,24 +150,25 @@ if(malformed||redirect||resume||emptyDetails) {
   assert.equal(diagnostic.format,'shsmu-diagnostic-v1');
   assert.equal(diagnostic.complete,false);
   if(emptyDetails) assert.equal(diagnostic.failure.code,'EMPTY_DETAILS');
+  assert.equal(diagnostic.failure.stage, emptyDetails || resume ? 'details' : 'month');
   assert(!JSON.stringify(diagnostic).includes('must-be-omitted'));
   assert(!JSON.stringify(diagnostic).includes('000000000001'));
   assert(!JSON.stringify(diagnostic).includes('synthetic account page'));
-  assert.match(panels[0].textContent,/采集未完成/);
+  assert.match(panels[0].textContent,/课表读取未完成/);
   if(resume) {
     assert.equal(diagnostic.responses.length,6);
     const pseudonyms=diagnostic.failure.request.params.MCSID.split(',').map(Number);
     assert.equal(pseudonyms[1]-pseudonyms[0],1);
     assert.notEqual(pseudonyms[0],21);
     assert.equal(diagnostic.failure.request.attempt,3);
-    const retry=descendants(panels[0]).find(child=>child.textContent==='继续采集');
+    const retry=descendants(panels[0]).find(child=>child.textContent==='继续读取');
     assert(retry);
     if(changeAccount)sandbox.document.body.innerText='学号： 000000000002\n我的课表';
     await retry.click();
     assert.equal(calls.filter(call=>call.path==='/Home/GetCurriculumTable').length,changeAccount?10:5,'resume must retain completed months only for the same account');
     assert.equal(calls.filter(call=>call.params.MCSID==='11,12').length,changeAccount?2:1,'account changes must discard previously completed details');
   } else {
-    assert(!descendants(panels[0]).some(child=>child.textContent==='继续采集'),'authentication or schema failures must not offer cached resume');
+    assert(!descendants(panels[0]).some(child=>child.textContent==='继续读取'),'authentication or schema failures must not offer cached resume');
     return;
   }
 }
@@ -165,7 +176,7 @@ assert.equal(blobs.length,resume?2:1,panels[0]?.textContent);
 const downloaded=JSON.parse(await blobs[blobs.length-1].text());
 assert.equal(downloaded.format,'shsmu-capture-v1');
 assert.equal(downloaded.complete,true);
-assert.equal(downloaded.collector_revision,'2026-09-22.13');
+assert.equal(downloaded.collector_revision,'2026-09-26.14');
 assert(downloaded.diagnostics.request_log.length > 0);
 assert(downloaded.diagnostics.request_log.every(entry => typeof entry.recorded_at === 'string'));
 assert(downloaded.diagnostics.request_log.filter(entry => entry.state==='success').every(entry => entry.duration_ms >= 0));
@@ -176,8 +187,11 @@ if(options.browser) {
   assert(!JSON.stringify(downloaded).includes(options.userAgent),'never retain the full user agent');
 }
 if(!options.blockDownload) {
-  assert.match(panels[0].textContent,/JSON.*下载/);
-  assert.match(panels[0].textContent,/文件已经下载/);
+  assert.match(panels[0].textContent,/已发起课表文件下载/);
+  assert.match(panels[0].textContent,/选择已下载的课表/);
+  assert.match(panels[0].textContent,/已读取 2 条课程记录/);
+  assert.match(panels[0].textContent,/不能直接导入手机/);
+  assert.doesNotMatch(panels[0].textContent,/下载成功|手机导入成功/);
   assert.match(panels[0].textContent,/wakeup\.csv/);
   assert.match(panels[0].textContent,/calendar\.ics/);
 }
@@ -185,9 +199,15 @@ assert.equal(downloaded.responses.length,7);
 assert.match(downloaded.account_key,/^[a-f0-9]{64}$/);
 assert.equal(calls.filter(call=>call.path==='/Home').length,0,'identity must come from the normal visible homepage, with no extra Home request');
 assert(!JSON.stringify(downloaded).includes('must-be-omitted'));
+const readCountBeforeCopy=calls.length;
+await descendants(panels[0]).find(child=>child.textContent==='复制排错信息').click();
+const diagnosticArea=descendants(panels[0]).find(child=>child.readOnly===true);
+assert.equal(diagnosticArea['aria-label'],'排错信息');
+assert.equal(JSON.parse(diagnosticArea.value).format,'shsmu-browser-support-v1');
+assert.equal(calls.length,readCountBeforeCopy,'copying diagnostics must not reread the school');
 if(options.repeatDownload) {
   const count=calls.length;
-  const retry=descendants(panels[0]).find(child=>child.textContent==='重新下载采集文件');
+  const retry=descendants(panels[0]).find(child=>child.textContent==='重新下载课表文件');
   assert(retry);
   await retry.click();
   assert.equal(await blobs.at(-1).text(),await blobs.at(-2).text(),'same capture and fetched_at, not a new sync');

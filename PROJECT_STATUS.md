@@ -1,5 +1,20 @@
 # 项目状态
 
+<a id="baseline"></a>
+## 2026-09-26 公开源码合并候选
+
+`codex/sync-local-work-20260926` 基于已推送的可靠性修复分支 `cdd52f9` 整理，
+准备连同 9 月 26 日的界面文案一起向 `main` 提交审查；`main` 的对比基线为 `3145dcb`。
+个人维护目录仍保留独立 Git 历史、配置和课表；公开候选只包含审查过的源码与文档。
+
+应用版本仍为 `1.0.0-rc12`，书签源码修订为 `2026-09-26.14`；
+两类安装页和仓库中的示例书签页已由当前浏览器模块重新生成。
+Windows 源码完整检查为 198 PASS、8 SKIP、0 FAIL，三组 JavaScript 检查与隔离源码自检 PASS。
+具体命令、修复过的陈旧断言和限制见 [本次集成记录](VERIFICATION.md#ui-copy-public-20260926)。
+本候选没有重新构建 EXE/APP、发布软件、安装用户书签、采集学校课表或验证手机导入；
+当前 [rc12 下载包](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc12)仍使用 `.12` 书签和发布当时的界面。
+若以后分发本候选，用户须在正常登录的浏览器中手动替换完整书签地址。
+
 2026-09-22 可靠性修复候选已推送至 `codex/reliability-contract-commit-20260922`，
 源码对象为 `c9e196bfa2abfb8b38f90ebb081dda8468e5176f`，包含跨语言参数契约和提交/输出边界修复。
 书签源码修订为 `2026-09-22.13`，应用版本未改，未重新打包或发布；已有浏览器书签只由本人手动替换。
@@ -13,7 +28,6 @@ Mac 首轮依赖缺失及临时路径别名夹具错误保留记录；补齐临�
 
 更新：2026-09-09。默认只读本页，再按 [维护索引](MAINTENANCE.md#task-map) 选择资料。学生使用见 [README](README.md)，实机验收见 [STUDENT_ACCEPTANCE](STUDENT_ACCEPTANCE.md)。
 
-<a id="baseline"></a>
 ## rc12 双平台同步与发布
 
 Windows x64 与 Apple 芯片 Mac 使用同一份源码及 `2026-09-08.12` 采集面板。
