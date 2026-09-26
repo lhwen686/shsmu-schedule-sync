@@ -1,15 +1,26 @@
 # 验证与修复记录
 
 <a id="release-rc13"></a>
-## RELEASE-RC13：双平台新候选的发布门槛
+## RELEASE-RC13：双平台预发布及回下载验收
 
-2026-09-26，[PR #4](https://github.com/lhwen686/shsmu-schedule-sync/pull/4) 经两次 Windows CI 成功后合入 `main`，合并提交 `cee1b98de6e2d898ef161608006f527838d38233`。新版本分支 `codex/release-rc13` 从该提交建立；应用版本 `1.0.0-rc13`、Mac 修订 7 / 构建号 `13.0`，两端书签版本 `2026-09-26.14`。仅将公开源码与说明用于构建，个人目录、配置、课表和日志不进入发布包。
+2026-09-26，[PR #4](https://github.com/lhwen686/shsmu-schedule-sync/pull/4) 合入 `main`（`cee1b98de6e2d898ef161608006f527838d38233`），从该基线创建 `codex/release-rc13`。最终源码经 [PR #5](https://github.com/lhwen686/shsmu-schedule-sync/pull/5) 合入 `main`（`801e5023d2112106c869426661a929248468e9ea`）。[v1.0.0-rc13](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc13) 为预发布，标签指向 `bb0e97d1175509fe28d5eff78ff9907a0d4653a5`；应用版本 `1.0.0-rc13`、Mac 修订 7 / 构建号 `13.0`、两端书签版本 `2026-09-26.14`。只用公开源码与说明构建，个人目录、配置、课表和日志未进入发布包。
 
-Windows 本地源码预检使用现有 Python 3.12.6 环境、Node 24.19.0 与隔离合成数据。首轮 `check.py --python-timeout 600` 在 206 项 Python 中有 1 FAIL、8 SKIP：Mac ZIP 用例仍硬编码“修订 6”；三组 JS 通过。将断言改为检查当前 `MAC_PACKAGE_LABEL` 后，`test_packaging` 定向 12 项中 10 PASS、2 项因本机符号链接权限 SKIP；最终完整检查 206 项中 **198 PASS、8 SKIP、0 FAIL/ERROR**，三组 JS PASS，退出 0。`desktop.py --data-root <隔离目录> --self-test <报告>` 退出 0，报告 `status=PASS`、`app_version=1.0.0-rc13`、`collector_revision=2026-09-26.14`、`frozen=false`；此为源码自检，不冒充 EXE/APP 验收。本机完整日志及源码自检报告仅留在忽略目录 `local/release-rc13/`。
+Windows 本地源码预检使用现有 Python 3.12.6、Node 24.19.0 与隔离合成数据。首轮 206 项 Python 中 1 FAIL、8 SKIP，原因是 Mac ZIP 用例仍硬编码“修订 6”；更正为当前 `MAC_PACKAGE_LABEL` 后，完整检查为 198 PASS、8 SKIP、0 FAIL/ERROR，三组 JS PASS，退出 0。源码 `desktop.py --self-test` PASS，报告 `frozen=false`，不冒充冻结程序验收。
 
-首轮[原生工作流](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36243131557)在提交 `6325d89` 上执行：Windows 206 项中 200 PASS、6 SKIP，三组 JS、构建和冻结程序自检 PASS；Mac 206 项中 1 FAIL、1 SKIP，三组 JS PASS，构建未执行，合包与发布被门禁跳过。FAIL 是 9 月 26 日新增的文件定位测试写死 `explorer.exe`，而 Mac 正确调用 `/usr/bin/open -R`；产品文件定位实现未失败。测试已改为分别注入 Windows/Mac 平台并核对两套命令，本机定向复查 PASS；修正后本机再次完整检查 206 项中 198 PASS、8 SKIP、三组 JS PASS，退出 0。后续原生工作流须在修正提交上重新完整运行，旧 Windows PASS 不代替新提交结果。
+首轮[原生工作流](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36243131557)在 `6325d89` 上：Windows 完整检查、构建和自检 PASS；Mac 206 项中 1 FAIL、1 SKIP，构建、合包和发布被门禁跳过。FAIL 是新增文件定位测试只断言 `explorer.exe`，Mac 实际正确调用 `/usr/bin/open -R`。测试改为分别核对两端命令，修正后本机完整检查为 198 PASS、8 SKIP，三组 JS PASS，退出 0；产品文件定位实现未修改。
 
-发布工作流须分别在 Windows x64 与 macOS arm64 运行完整检查、原生构建和冻结程序自检；生成书签、源码指纹、Mac 符号链接、ZIP 和六个公开附件需校验，发布后还要回下载逐字节复核。任一门槛失败则不把构建当作已发布。rc12 旧附件保留，不覆盖；rc13 的实际运行、源码提交及产物 SHA-256 待工作流完成后记录。
+最终[原生发布工作流](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36243606122)在固定源码 `bb0e97d1175509fe28d5eff78ff9907a0d4653a5` 上全部成功：Windows 206 项为 200 PASS、6 SKIP；macOS arm64 206 项为 205 PASS、1 SKIP。两端三组 JavaScript、适用 CMD 检查、原生构建和冻结程序自检 PASS；报告均为 `status=PASS`、`frozen=true`、`python_on_path=false`。合包门禁核对相同源码指纹 `2da46e038c2e9392a6eca18231d2b74049aeea37a40295f0d0802b745973feb2` 和相同书签 SHA-256 `c1e53f85ad19f87c82e0b5850f2e183f80686846f1a54ed790df792493ac154f`。发布步骤检查六个附件名称和字节，未替换 rc12 附件。
+
+维护者再从公开 Release 独立回下载六个附件：全部与 `SHA256SUMS.txt` 和 GitHub 附件摘要一致；ZIP CRC、重复文件名、单平台与双平台成员逐字节相同，包内版本、书签、构建输入源码哈希、清单逐文件哈希及 54 个 Mac 符号链接目标均核对通过。Windows ZIP 再次解压至中文空格路径，限制 PATH 仅含 Windows System32，直接运行回下载 EXE 自检，退出 0 / PASS：`app_version=1.0.0-rc13`、`collector_revision=2026-09-26.14`、`frozen=true`、`python_on_path=false`、依赖与书签包内核对通过。本机原始日志和审计脚本仅留在忽略目录 `local/release-rc13/`。
+
+| 公开附件 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| `SHSMU-Schedule-Assistant-1.0.0-rc13-Windows-x64-Mac-arm64.zip` | 42756222 | `9026ae01a6fdf577c8451c1be744dc71a120be4c525571e803a477e7b4e01761` |
+| `SHSMU-Schedule-Assistant-1.0.0-rc13-Windows-x64.zip` | 24605525 | `f247c850b3d04149bd0c2f66258b99d14743a9ad20b90dfe3507f9bf9fab1412` |
+| `SHSMU-Schedule-Assistant-1.0.0-rc13-Mac-arm64.zip` | 21228426 | `23332e9752f8fc7830b046c2bb184af3ee38bb7f5bec17238e8a12ca9a2fb0b6` |
+| `User-Guide.html` | 4016101 | `78e11f2f481c58706c102bb3612230c503ca56efa44ea035fcfe5813062ee119` |
+| `build-verification.json` | 2913 | `3ea51843092a5743d1a5e8ceea39d0279886786dc219bd3e6aad013a487eee8b` |
+| `SHA256SUMS.txt` | 534 | `6315d2f648880be8256e409f299e9d287d14c11bce9a6b4f42d3939298a4f13b` |
 
 当前版本真实教务短/全范围、至少 10 条网页核对、独立重复采集、iPhone 导入、其他电脑和完整原生窗口验收均为 **NOT RUN**。旧源码在 Windows 200% 缩放下的排错日志窗口裁切是已知问题，本次版本更新未宣称修复；参见 [rc13 学生验收](STUDENT_ACCEPTANCE.md#acceptance-rc13)。
 

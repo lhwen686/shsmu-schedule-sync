@@ -1,15 +1,19 @@
 # 项目状态
 
 <a id="baseline"></a>
-## rc13 双平台预发布候选（2026-09-26）
+## rc13 双平台预发布（2026-09-26）
 
-[PR #4](https://github.com/lhwen686/shsmu-schedule-sync/pull/4) 已合入 `main`，合并提交为
-`cee1b98de6e2d898ef161608006f527838d38233`。`codex/release-rc13` 从该提交准备
-Windows x64 与 Apple 芯片 Mac 的新预发布；发布页为
-[v1.0.0-rc13](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc13)。
+[PR #4](https://github.com/lhwen686/shsmu-schedule-sync/pull/4) 已合入 `main`（`cee1b98de6e2d898ef161608006f527838d38233`）；
+[PR #5](https://github.com/lhwen686/shsmu-schedule-sync/pull/5) 已合入 `main`（`801e5023d2112106c869426661a929248468e9ea`）。
+[v1.0.0-rc13 预发布](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc13)
+对应源码 `bb0e97d1175509fe28d5eff78ff9907a0d4653a5`，提供 Windows x64 和 Apple 芯片 Mac 安装包。
 应用版本为 `1.0.0-rc13`，Mac 修订 7、构建号 `13.0`，书签版本为 `2026-09-26.14`。
-两端原生完整检查、冻结程序自检、书签与源码指纹核对和发布附件回读为发布门槛；
-实际结果与哈希以 [rc13 发布记录](VERIFICATION.md#release-rc13) 为准。
+
+[发布工作流](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36243606122)
+通过两端完整检查、原生构建、冻结程序自检、合包与线上附件回读。
+从 Release 独立回下载的六个附件通过校验和、源码指纹、书签、ZIP 内容和 Mac 符号链接核对；
+下载后的 Windows EXE 在中文空格路径且 PATH 不含 Python 时自检 PASS。
+细节和 SHA-256 见 [rc13 发布记录](VERIFICATION.md#release-rc13)。
 升级后需在实际使用的浏览器中手动更新书签，并保留原课表目录、UID 与历史。
 新版学校采集、手机导入、其他电脑及完整原生窗口验收仍需按
 [rc13 学生验收](STUDENT_ACCEPTANCE.md#acceptance-rc13) 单独进行。
