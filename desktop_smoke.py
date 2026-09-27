@@ -58,8 +58,10 @@ def self_test(report_path):
                           generated_bookmark_sha256=hashlib.sha256(bookmark.encode()).hexdigest(),
                           generated_bookmark_length=len(bookmark), bundled_bookmark_verified=True)
             def shown(text):
+                from desktop_theme import walk_widgets
                 return any('text' in child.keys() and str(child.cget('text')) == text
-                           for child in ui.content.winfo_children())
+                           and child.winfo_manager()
+                           for child in walk_widgets(ui.content))
 
             window = tk.Tk()
             window.withdraw()
@@ -218,6 +220,10 @@ def self_test(report_path):
             assert service.state()['phone_confirmed_ics'] == result['apple_report']['ics_sha256']
             assert 'phone_confirmed_csv' not in service.state()
             ui.show_settings()
+            assert ui.page == 'settings'
+            assert shown('学期、作息与文件夹详细设置')
+            ui.show_settings_details()
+            assert ui.page == 'settings-details'
             window.update_idletasks()
             ui.show_diagnostics()
             window.update_idletasks()

@@ -1,7 +1,10 @@
 """Desktop workflow acceptance in disposable directories, never a live account."""
 import json
+from contextlib import ExitStack
+import traceback
 import hashlib
 import shutil
+import sys
 import tempfile
 import threading
 import time
@@ -45,10 +48,129 @@ def write_capture(root, values=None, *, fetched=NOW, account='a' * 64, config=CO
     return path
 
 
+# Real import/export includes durable writes and diagnostic I/O. This is a
+# bounded integration watchdog, not the worker cancellation-response contract.
+WORKER_INTEGRATION_TIMEOUT = 30
+
+
+def wait_for_worker(job, timeout=WORKER_INTEGRATION_TIMEOUT):
+    if job.thread is not None:
+        job.thread.join(timeout)
+    if job.busy:
+        raise AssertionError(f'Worker did not exit within {timeout}s (stage={job.stage})')
+
+
+def cleanup_worker_directory(temp, jobs, timeout=WORKER_INTEGRATION_TIMEOUT):
+    deadline = time.monotonic() + timeout
+    try:
+        for job in jobs:
+            if job.busy and job.stage not in ('committing', 'exporting', 'result'):
+                # Test teardown must not block in synchronous diagnostic I/O.
+                # The existing cancellation token still respects the commit boundary.
+                job.cancelled.set()
+            wait_for_worker(job, max(0, deadline - time.monotonic()))
+    finally:
+        if any(job.busy for job in jobs):
+            # Retain evidence and the worker's files if bounded cleanup failed.
+            temp._finalizer.detach()
+        else:
+            temp.cleanup()
+
+
+class WorkerObservation:
+    """Observe this job without consuming its queue or replacing real file I/O."""
+    def __init__(self, job):
+        self.condition = threading.Condition()
+        self.events = []
+        self.polls = self.paused_polls = 0
+        put, pause_check, cancel_wait = job.events.put, job.picker_open.is_set, job.cancelled.wait
+
+        def record(item, *args, **kwargs):
+            result = put(item, *args, **kwargs)
+            with self.condition:
+                self.events.append(item)
+                self.condition.notify_all()
+            return result
+
+        def check_pause():
+            value = pause_check()
+            if value:
+                with self.condition:
+                    self.paused_polls += 1
+                    self.condition.notify_all()
+            return value
+
+        def wait(timeout=None):
+            # wait_capture waits one second only after a full scan. A paused
+            # picker uses 0.1s instead and cannot count as an old-file scan.
+            if timeout == 1:
+                with self.condition:
+                    self.polls += 1
+                    self.condition.notify_all()
+            return cancel_wait(timeout)
+
+        job.events.put = record
+        job.picker_open.is_set = check_pause
+        job.cancelled.wait = wait
+
+    def wait_for(self, predicate, description, timeout=WORKER_INTEGRATION_TIMEOUT):
+        with self.condition:
+            self.condition.wait_for(lambda: predicate() or any(
+                stage in ('error', 'finished') for stage, _ in self.events), timeout)
+            if not predicate():
+                raise AssertionError(f'Timed out or worker ended before {description}; '
+                                     f'events={[stage for stage, _ in self.events]}')
+
+    def stage(self, name):
+        self.wait_for(lambda: any(stage == name for stage, _ in self.events), name)
+
+
+class WorkerSynchronizationTests(unittest.TestCase):
+    def test_phase_wait_has_a_finite_failure_before_waiting(self):
+        observer = WorkerObservation(DesktopJob(Mock()))
+        with self.assertRaisesRegex(AssertionError, 'before waiting'):
+            observer.wait_for(lambda: bool(observer.events), 'waiting', timeout=0.02)
+        self.assertEqual(observer.events, [])
+
+    def test_finished_is_not_thread_exit_and_cleanup_retains_live_directory(self):
+        temp = tempfile.TemporaryDirectory(prefix='worker cleanup ')
+        root = Path(temp.name)
+        release, finished = threading.Event(), threading.Event()
+        job = DesktopJob(Mock(run=Mock(return_value={})))
+        put = job.events.put
+
+        def held_finish(item):
+            put(item)
+            if item[0] == 'finished':
+                finished.set()
+                if not release.wait(5):
+                    raise AssertionError('Controlled worker gate was not released')
+                (root / 'worker-exited.txt').write_text('synthetic', encoding='utf-8')
+
+        job.events.put = held_finish
+        try:
+            self.assertTrue(job.start())
+            self.assertTrue(finished.wait(3))
+            with self.assertRaisesRegex(AssertionError, 'Worker did not exit'):
+                wait_for_worker(job, timeout=0.02)
+            with self.assertRaisesRegex(AssertionError, 'Worker did not exit'):
+                cleanup_worker_directory(temp, [job], timeout=0.02)
+            self.assertTrue(job.busy)
+            self.assertTrue(root.is_dir())
+        finally:
+            release.set()
+            try:
+                wait_for_worker(job, timeout=3)
+                self.assertTrue((root / 'worker-exited.txt').is_file())
+            finally:
+                cleanup_worker_directory(temp, [job], timeout=3)
+
+
 class DesktopTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='课表 desktop ')
-        self.addCleanup(self.temp.cleanup)
+        self.worker_jobs = []
+        self.addCleanup(cleanup_worker_directory, self.temp, self.worker_jobs)
         self.root = Path(self.temp.name).resolve()
         self.service = DesktopService(self.root)
         self.service.initialize()
@@ -57,6 +179,41 @@ class DesktopTests(unittest.TestCase):
     def state_bytes(self):
         return {str(p.relative_to(self.root)): p.read_bytes() for d in ('data', 'output')
                 for p in (self.root / d).rglob('*') if p.is_file() and p.name != 'sync.lock'}
+
+    def observed_worker(self):
+        job = DesktopJob(self.service)
+        self.worker_jobs.append(job)
+        return job, WorkerObservation(job)
+
+    def assert_worker_import(self, job, observer, fetched):
+        observer.stage('processing')
+        self.assertFalse(job.submit_file(self.root / 'shsmu-capture-test.json'))
+        wait_for_worker(job)
+        self.assertFalse(job.thread.is_alive())
+        stages = [stage for stage, _ in observer.events]
+        self.assertNotIn('error', stages)
+        self.assertEqual(stages.count('result'), 1)
+        self.assertEqual(stages.count('committing'), 1)
+        self.assertEqual(stages.count('finished'), 1)
+        self.assertEqual(stages[-1], 'finished')
+        result = next(value for stage, value in observer.events if stage == 'result')
+        self.assertTrue(result['committed'])
+        self.assertFalse(result['imported'].duplicate)
+        self.assertIsNone(result['issue'])
+        self.assertIsNone(result['apple_issue'])
+        self.assertEqual(result['output_issues'], {})
+        self.assertEqual(sync.load_current(self.root)['capture_fetched_at'], fetched)
+        self.assertEqual(len(list((self.root / 'data/runs').iterdir())), 1)
+        # Readiness reloads JSON: integer slot keys/tuples become strings/lists.
+        self.assertEqual(self.service.ready_export(), json.loads(json.dumps(result['report'])))
+        self.assertEqual(self.service.ready_apple_export(), result['apple_report'])
+        for report, key, path in [(result['report'], 'csv_sha256', 'output/wakeup.csv'),
+                                  (result['apple_report'], 'ics_sha256', 'output/calendar.ics')]:
+            data = (self.root / path).read_bytes()
+            self.assertTrue(data)
+            self.assertEqual(hashlib.sha256(data).hexdigest(), report[key])
+        with sync.exclusive_sync(self.root):
+            pass
 
     def test_mixed_details_both_exports_reopen_and_repeat_without_upload(self):
         with patch('sync.publish_current', side_effect=AssertionError('Desktop must not upload')):
@@ -521,47 +678,52 @@ class DesktopTests(unittest.TestCase):
         # File is intentionally older than the waiter's baseline. Only user selection imports it.
         path = write_capture(self.root)
         self.service.save_settings({**CONFIG, 'downloads_dir': str(self.root)})
-        job = DesktopJob(self.service)
+        job, observer = self.observed_worker()
         self.assertTrue(job.start())
-        self.addCleanup(lambda: (job.cancel(), job.thread.join(5)))
-        deadline = time.monotonic() + 5
-        while job.stage != 'waiting' and time.monotonic() < deadline:
-            time.sleep(0.02)
+        observer.stage('waiting')
+        observer.wait_for(lambda: observer.polls >= 2, 'old file scans', timeout=5)
         self.assertEqual(job.stage, 'waiting')
         self.assertFalse(job.start(capture=path))
         job.picker_open.set()
+        observer.wait_for(lambda: observer.paused_polls > 0, 'picker pause', timeout=3)
         self.assertFalse(job.submit_file(None))  # cancelling the dialog changes no baseline
+        polls = observer.polls
         job.picker_open.clear()
+        observer.wait_for(lambda: observer.polls >= polls + 2, 'old file scans after cancel', timeout=5)
         self.assertEqual(job.stage, 'waiting')
         self.assertFalse((self.root / 'data/current.json').exists())
         self.assertTrue(job.submit_file(path))
-        job.thread.join(5)
-        self.assertFalse(job.busy)
-        self.assertIsNotNone(self.service.ready_export())
+        self.assert_worker_import(job, observer, NOW)
 
     def test_waiter_accepts_new_download_but_not_old_file_after_picker_cancel(self):
         downloads = self.root / 'downloads'
         downloads.mkdir()
         write_capture(downloads)
         self.service.save_settings({**CONFIG, 'downloads_dir': str(downloads)})
-        job = DesktopJob(self.service)
-        job.start()
-        self.addCleanup(lambda: (job.cancel(), job.thread.join(5)))
-        deadline = time.monotonic() + 5
-        while job.stage != 'waiting' and time.monotonic() < deadline:
-            time.sleep(0.02)
+        job, observer = self.observed_worker()
+        self.assertTrue(job.start())
+        observer.stage('waiting')
+        observer.wait_for(lambda: observer.polls >= 2, 'old file scans', timeout=5)
+        self.assertFalse(job.start(capture=downloads / 'shsmu-capture-test.json'))
         job.picker_open.set()
-        job.picker_open.clear()  # choosing nothing must not restart the watcher
+        observer.wait_for(lambda: observer.paused_polls > 0, 'picker pause', timeout=3)
         self.assertFalse((self.root / 'data/current.json').exists())
         path = downloads / 'shsmu-capture-new.json'
         path.write_bytes(write_capture(self.root, fetched=LATER).read_bytes())
-        job.thread.join(5)
-        self.assertFalse(job.busy)
-        self.assertIsNotNone(self.service.ready_export())
+        paused_polls = observer.paused_polls
+        observer.wait_for(lambda: observer.paused_polls >= paused_polls + 2, 'held picker', timeout=3)
+        self.assertEqual(job.stage, 'waiting')
+        self.assertFalse((self.root / 'data/current.json').exists())
+        self.assertFalse(job.submit_file(None))
+        # A download made while the picker was open must not become an old
+        # baseline file when the picker is cancelled. Real two-scan stability
+        # detection and the complete import/export path remain in use.
+        job.picker_open.clear()
+        self.assert_worker_import(job, observer, LATER)
 
     def test_worker_cancel_is_bounded_and_releases_the_lock(self):
         self.service.save_settings({**CONFIG, 'downloads_dir': str(self.root)})
-        job = DesktopJob(self.service)
+        job, _ = self.observed_worker()
         job.start()
         job.cancel()
         job.thread.join(3)
@@ -652,16 +814,122 @@ class DesktopTests(unittest.TestCase):
 
 class DesktopWidgetTests(unittest.TestCase):
     def setUp(self):
+        self.windows, self.uis, self.extra_threads = [], [], []
+        self.callback_errors, self.lifecycle = [], []
+        self.widget_patches = ExitStack()
+        self.cleaned = False
+        self.temp = tempfile.TemporaryDirectory(prefix='课表 widgets ')
+        # This single owner decides when deletion is safe, including setUp failure.
+        # Never let TemporaryDirectory's independent finalizer race a live worker.
+        self.temp._finalizer.detach()
+        self.addCleanup(self.cleanup_widgets)
+        self.ui = self.new_ui()
+        self.window = self.ui.window
+        self.ui.service.save_settings(CONFIG)
+        self.ui.preference_path = Path(self.temp.name) / 'preferences.json'
+
+    def new_ui(self):
         import tkinter as tk
         from desktop import AssistantWindow
-        self.temp = tempfile.TemporaryDirectory(prefix='课表 widgets ')
-        self.addCleanup(self.temp.cleanup)
-        self.window = tk.Tk()
-        self.window.withdraw()
-        self.ui = AssistantWindow(self.window, Path(self.temp.name))
-        self.ui.service.save_settings(CONFIG)
-        self.addCleanup(self.ui.dispose)
-        self.ui.preference_path = Path(self.temp.name) / 'preferences.json'
+        window = tk.Tk()
+        self.windows.append(window)  # Own even a partially constructed window.
+        window.withdraw()
+        ui = AssistantWindow(window, Path(self.temp.name))
+        self.uis.append(ui)
+        original = window.report_callback_exception
+        def callback_error(kind, error, tb):
+            self.callback_errors.append(error)
+            self.lifecycle.append((time.monotonic(), 'callback_error', repr(error)))
+            original(kind, error, tb)
+        window.report_callback_exception = callback_error
+        return ui
+
+    def widget_patch(self, *args, **kwargs):
+        # Patches used by workers stay installed through failure cleanup.
+        return self.widget_patches.enter_context(patch(*args, **kwargs))
+
+    def widget_state(self):
+        return [dict(running=ui.running, busy=ui.job.busy, stage=ui.job.stage,
+                     alive=bool(ui.job.thread and ui.job.thread.is_alive()),
+                     disposed=ui.disposed) for ui in self.uis]
+
+    def wait_tk(self, predicate, *, window=None, timeout=WORKER_INTEGRATION_TIMEOUT,
+                check_errors=True):
+        window = window if window is not None else self.window
+        started = time.monotonic()
+        deadline = started + timeout
+        pending, errors, completed = [None], [], [False]
+        self.lifecycle.append((time.monotonic(), 'wait_start', self.widget_state()))
+        def check():
+            pending[0] = None
+            try:
+                if check_errors and self.callback_errors:
+                    raise AssertionError(f'Tk callback failed: {self.callback_errors!r}')
+                if predicate():
+                    completed[0] = True
+                    window.quit()
+                elif time.monotonic() >= deadline:
+                    self.lifecycle.append((time.monotonic(), 'deadline_expired',
+                                           dict(started=started, deadline=deadline,
+                                                timeout=timeout)))
+                    raise AssertionError(f'Tk completion timeout after {timeout}s: '
+                                         f'{self.widget_state()}')
+                else:
+                    pending[0] = window.after(20, check)
+            except Exception as error:
+                errors.append(error)
+                self.lifecycle.append((time.monotonic(), 'wait_error', repr(error)))
+                window.quit()
+        pending[0] = window.after(0, check)
+        try:
+            window.mainloop()
+        finally:
+            if pending[0] is not None:
+                window.after_cancel(pending[0])
+        if errors:
+            raise errors[0]
+        self.assertTrue(completed[0], 'Tk mainloop exited before completion')
+        self.lifecycle.append((time.monotonic(), 'wait_complete', self.widget_state()))
+
+    def wait_ui(self, ui, *, timeout=WORKER_INTEGRATION_TIMEOUT):
+        self.wait_tk(lambda: not ui.running and not ui.job.busy and ui.job.events.empty(),
+                     window=ui.window, timeout=timeout)
+        self.assertFalse(ui.job.thread is not None and ui.job.thread.is_alive())
+
+    def cleanup_widgets(self, timeout=WORKER_INTEGRATION_TIMEOUT):
+        if self.cleaned:
+            return
+        self.lifecycle.append((time.monotonic(), 'cleanup_start', self.widget_state()))
+        for ui in self.uis:
+            if ui.job.busy and ui.job.stage not in ('committing', 'exporting', 'result'):
+                ui.job.cancelled.set()  # Existing token; no synchronous diagnostic I/O.
+        def settled():
+            return (all(not ui.job.busy and (ui.disposed or
+                        (not ui.running and ui.job.events.empty())) for ui in self.uis)
+                    and all(not thread.is_alive() for thread in self.extra_threads))
+        try:
+            if not settled():
+                active = next(ui.window for ui in self.uis if not ui.disposed)
+                self.wait_tk(settled, window=active, timeout=timeout, check_errors=False)
+            self.assertTrue(settled(), 'Active widget worker must retain its directory')
+            self.lifecycle.append((time.monotonic(), 'workers_exited', self.widget_state()))
+            for ui in reversed(self.uis):
+                ui.dispose()
+            for window in reversed(self.windows):
+                if not any(ui.window is window for ui in self.uis):
+                    window.destroy()  # Constructor failed before registration.
+            self.widget_patches.close()
+            self.temp.cleanup()
+            self.cleaned = True
+            self.lifecycle.append((time.monotonic(), 'cleanup_complete', self.widget_state()))
+        except Exception:
+            frames = sys._current_frames()
+            self.lifecycle.append((time.monotonic(), 'cleanup_retained', dict(
+                directory=self.temp.name, state=self.widget_state(),
+                stacks={t.name: traceback.format_stack(frames[t.ident])
+                        for t in threading.enumerate() if t.ident in frames})))
+            raise
+        self.assertFalse(self.callback_errors, f'Tk callback errors: {self.callback_errors!r}')
 
     def test_diagnostic_dialog_exports_selected_record_and_cancel_is_harmless(self):
         import tkinter as tk
@@ -697,35 +965,56 @@ class DesktopWidgetTests(unittest.TestCase):
         self.assertEqual(record['status'], 'failed')
         self.assertNotIn('PRIVATE_CALLBACK_DETAIL', json.dumps(record))
         self.assertTrue(any(e.get('exception', {}).get('type') == 'RuntimeError' for e in record['events']))
+        self.assertEqual(len(self.callback_errors), 1)
+        self.callback_errors.clear()  # This test explicitly invokes the error handler.
 
     def test_uncaught_background_error_is_failed_and_only_queues_ui_update(self):
+        calls, queued, hook_errors = [], [], []
+        original_show = self.ui.show_issue
+        original_put = self.ui.job.events.put
+        def show(issue):
+            calls.append(threading.current_thread())
+            return original_show(issue)
+        def put(value, *args, **kwargs):
+            queued.append((value[0], threading.current_thread()))
+            return original_put(value, *args, **kwargs)
+        def hook(args):
+            try:
+                self.ui.handle_thread_error(args.exc_value)
+                self.assertNotIn(threading.current_thread(), calls)
+            except Exception as error:
+                hook_errors.append(error)
         def fail():
             raise RuntimeError('PRIVATE_THREAD_DETAIL')
-        with patch('threading.excepthook', side_effect=lambda args: self.ui.handle_thread_error(args.exc_value)), \
-                patch.object(self.ui, 'show_issue') as show:
-            worker = threading.Thread(target=fail)
-            worker.start()
-            worker.join(5)
-            self.assertFalse(worker.is_alive())
-            show.assert_not_called()
+        self.widget_patch('threading.excepthook', side_effect=hook)
+        self.widget_patch('desktop.AssistantWindow.show_issue',
+                          autospec=True, side_effect=lambda ui, issue: show(issue))
+        self.widget_patches.enter_context(patch.object(self.ui.job.events, 'put', side_effect=put))
+        worker = threading.Thread(target=fail, name='widget-error-worker')
+        self.extra_threads.append(worker)
+        worker.start()
+        self.wait_tk(lambda: not worker.is_alive() and self.ui.job.events.empty())
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(hook_errors, [])
+        self.assertEqual(queued, [('error', worker)])
+        self.assertEqual(calls, [threading.current_thread()])
         record = self.ui.service.diagnostics.record
         self.assertEqual(record['status'], 'failed')
         self.assertNotIn('PRIVATE_THREAD_DETAIL', json.dumps(record))
         self.assertTrue(any(e['event'] == 'unhandled_thread_failed' for e in record['events']))
-        self.assertEqual(self.ui.job.events.get_nowait()[0], 'error')
 
     def test_picker_cancel_keeps_current_waiting_job(self):
         self.ui.service.save_settings({**CONFIG, 'downloads_dir': self.temp.name})
         self.ui.start()
-        deadline = time.monotonic() + 5
-        while self.ui.job.stage != 'waiting' and time.monotonic() < deadline:
-            time.sleep(0.02)
-        with patch('desktop.filedialog.askopenfilename', return_value=''):
-            self.ui.pick_capture()
+        self.wait_tk(lambda: self.ui.job.stage == 'waiting', timeout=5)
+        self.widget_patch('desktop.filedialog.askopenfilename', return_value='')
+        self.ui.pick_capture()
         self.assertTrue(self.ui.job.busy)
         self.assertFalse(self.ui.job.cancelled.is_set())
         self.ui.job.cancel()
-        self.ui.job.thread.join(5)
+        self.wait_ui(self.ui, timeout=5)  # Preserve this test's cancellation budget.
+        with sync.exclusive_sync(self.ui.service.root):
+            pass
 
     def test_user_setting_forms_and_phone_card_render_at_font_scales(self):
         from tkinter import ttk
@@ -734,6 +1023,7 @@ class DesktopWidgetTests(unittest.TestCase):
             self.window.tk.call('tk', 'scaling', 96 / 72 * factor)
             self.ui._style()
             self.ui.show_settings()
+            self.buttons()['学期、作息与文件夹详细设置'].invoke()
             self.window.update_idletasks()
             self.assertTrue(any(isinstance(w, ttk.Notebook) for w in self.ui.content.winfo_children()))
             self.ui.show_phone()
@@ -766,8 +1056,9 @@ class DesktopWidgetTests(unittest.TestCase):
 
     def file_buttons(self, ui=None):
         from tkinter import ttk
+        label = '在 Finder 中显示' if sys.platform == 'darwin' else '打开文件位置'
         return [w for w in self.widgets(ui) if isinstance(w, ttk.Button)
-                and str(w.cget('text')) == '打开文件位置']
+                and str(w.cget('text')) == label]
 
     def test_startup_resumes_bookmark_guide_until_first_capture(self):
         import tkinter as tk
@@ -786,9 +1077,8 @@ class DesktopWidgetTests(unittest.TestCase):
                 if captured:
                     self.ui.service.run(capture=write_capture(
                         Path(self.temp.name), config=self.ui.service.config()))
-                window = tk.Tk()
-                window.withdraw()
-                reopened = AssistantWindow(window, Path(self.temp.name))
+                reopened = self.new_ui()
+                window = reopened.window
                 try:
                     window.update_idletasks()
                     self.assertEqual('复制安装页地址' in self.buttons(reopened), not captured)
@@ -797,6 +1087,7 @@ class DesktopWidgetTests(unittest.TestCase):
                     reopened.nav_buttons[0].invoke()
                     self.assertEqual('复制安装页地址' in self.buttons(reopened), not captured)
                 finally:
+                    self.wait_ui(reopened)
                     reopened.dispose()
 
     def test_both_exports_on_home_and_results_locate_exact_files(self):
@@ -807,6 +1098,12 @@ class DesktopWidgetTests(unittest.TestCase):
         for show in (self.ui.show_home, lambda: self.ui.show_result(result)):
             show()
             self.window.update_idletasks()
+            if self.ui.page == 'home':
+                entry = self.buttons()['查看文件与导入步骤']
+                self.assertFalse(entry.instate(['disabled']))
+                entry.invoke()
+                self.window.update_idletasks()
+                self.assertEqual(self.ui.page, 'results')
             buttons = self.buttons()
             with patch('desktop.reveal_file', return_value=Mock(poll=Mock(return_value=0))) as reveal:
                 files = self.file_buttons()
@@ -822,53 +1119,116 @@ class DesktopWidgetTests(unittest.TestCase):
         self.assertIn('重新生成导入文件', self.buttons())
 
     def test_reopened_setup_imports_existing_json_and_exposes_both_exports(self):
-        import tkinter as tk
-        from desktop import AssistantWindow
         self.ui.service.confirm_term()
         self.ui.service.acknowledge_bookmark()
         capture = write_capture(Path(self.temp.name), config=self.ui.service.config())
         before = capture.read_bytes()
         bookmark_ack = self.ui.service.state()['bookmark_ack']
         self.ui.dispose()
-        window = tk.Tk()
-        window.withdraw()
-        reopened = AssistantWindow(window, Path(self.temp.name))
+        reopened = self.new_ui()
+        self.assertIn('复制安装页地址', self.buttons(reopened))
+        self.assertIn('选择已下载的课表', self.buttons(reopened))
+        self.widget_patch('desktop.filedialog.askopenfilename', return_value=str(capture))
+        self.widget_patch('desktop_service.wait_capture',
+                          side_effect=AssertionError('must use selected JSON'))
+        observation = WorkerObservation(reopened.job)
+        # Fixed integration budget starts immediately before the actual button.
+        started = time.monotonic()
+        self.buttons(reopened)['选择已下载的课表'].invoke()
+        self.wait_ui(reopened, timeout=max(0, WORKER_INTEGRATION_TIMEOUT -
+                                          (time.monotonic() - started)))
+        self.assertFalse(reopened.job.thread.is_alive())
+        self.assertEqual(reopened.page, 'results')
+        stages = [stage for stage, _ in observation.events]
+        self.assertEqual(stages.count('finished'), 1)
+        self.assertNotIn('error', stages)
+        with sync.exclusive_sync(reopened.service.root):
+            pass
+        self.assertFalse(reopened.running)
+        self.assertIsNotNone(reopened.service.ready_export())
+        self.assertIsNotNone(reopened.service.ready_apple_export())
+        with patch('desktop.reveal_file', return_value=Mock(poll=Mock(return_value=0))) as reveal:
+            files = self.file_buttons(reopened)
+            self.assertEqual(len(files), 2)
+            files[0].invoke()
+            files[1].invoke()
+            self.assertEqual([call.args[0] for call in reveal.call_args_list],
+                [reopened.service.root / 'output/wakeup.csv', reopened.service.root / 'output/calendar.ics'])
+        self.assertEqual(capture.read_bytes(), before)
+        self.assertEqual(reopened.service.state()['bookmark_ack'], bookmark_ack)
+        reopened.show_home()
+        self.assertIn('重新获取课表', self.buttons(reopened))
+
+    def test_tk_finished_live_worker_retains_directory_and_patches_until_release(self):
+        release, finished = threading.Event(), threading.Event()
+        root = Path(self.temp.name)
+        marker = self.widget_patch('desktop_service.wait_capture',
+                                  side_effect=AssertionError('selected capture only'))
+        put = self.ui.job.events.put
+        gate_errors, heartbeat = [], []
+        def held_finish(value, *args, **kwargs):
+            result = put(value, *args, **kwargs)
+            if value[0] == 'finished':
+                finished.set()
+                if not release.wait(WORKER_INTEGRATION_TIMEOUT):  # Worker-only latch.
+                    gate_errors.append('Controlled gate was not released')
+                (root / 'worker-exited.txt').write_text('synthetic', encoding='utf-8')
+            return result
+        self.widget_patches.enter_context(patch.object(self.ui.job.events, 'put',
+                                                      side_effect=held_finish))
+        self.ui.start(capture=write_capture(root))
         try:
-            self.assertIn('复制安装页地址', self.buttons(reopened))
-            self.assertIn('选择已下载的课表', self.buttons(reopened))
-            with patch('desktop.filedialog.askopenfilename', return_value=str(capture)), \
-                    patch('desktop_service.wait_capture', side_effect=AssertionError('must use selected JSON')):
-                self.buttons(reopened)['选择已下载的课表'].invoke()
-                # Use the application's normal event loop, with a Tk deadline.
-                # Nested update() may never drain Aqua Tk 8.6's native events.
-                def finish_when_ready():
-                    if not reopened.running:
-                        window.quit()
-                    else:
-                        completion[0] = window.after(20, finish_when_ready)
-                completion = [window.after(20, finish_when_ready)]
-                deadline = window.after(5000, window.quit)
-                try:
-                    window.mainloop()
-                finally:
-                    window.after_cancel(completion[0])
-                    window.after_cancel(deadline)
-            self.assertFalse(reopened.running)
-            self.assertIsNotNone(reopened.service.ready_export())
-            self.assertIsNotNone(reopened.service.ready_apple_export())
-            with patch('desktop.reveal_file', return_value=Mock(poll=Mock(return_value=0))) as reveal:
-                files = self.file_buttons(reopened)
-                self.assertEqual(len(files), 2)
-                files[0].invoke()
-                files[1].invoke()
-                self.assertEqual([call.args[0] for call in reveal.call_args_list],
-                    [reopened.service.root / 'output/wakeup.csv', reopened.service.root / 'output/calendar.ics'])
-            self.assertEqual(capture.read_bytes(), before)
-            self.assertEqual(reopened.service.state()['bookmark_ack'], bookmark_ack)
-            reopened.show_home()
-            self.assertIn('重新获取课表', self.buttons(reopened))
+            self.wait_tk(lambda: finished.is_set() and not self.ui.running)
+            self.assertTrue(self.ui.job.thread.is_alive())
+            self.assertEqual(self.ui.page, 'results')
+            beat = self.window.after(10, lambda: heartbeat.append(time.monotonic()))
+            try:
+                with self.assertRaisesRegex(AssertionError, 'Tk completion timeout'):
+                    self.wait_ui(self.ui, timeout=0.08)
+                with self.assertRaisesRegex(AssertionError, 'Tk completion timeout'):
+                    self.cleanup_widgets(timeout=0.08)
+            finally:
+                self.window.after_cancel(beat)
+            # after() cannot preempt native event handling. Assert the fixed
+            # deadline, not an invented Tk scheduling/performance guarantee;
+            # the isolated process watchdog bounds an unresponsive mainloop.
+            expiries = [entry for entry in self.lifecycle if entry[1] == 'deadline_expired']
+            self.assertEqual(len(expiries), 2)
+            for observed, _, budget in expiries:
+                self.assertAlmostEqual(budget['deadline'] - budget['started'], 0.08)
+                self.assertGreaterEqual(observed, budget['deadline'])
+            self.assertTrue(heartbeat, 'Tk heartbeat must run while the worker is held')
+            self.assertTrue(root.is_dir())
+            self.assertFalse(self.ui.disposed)
+            self.assertFalse(self.temp._finalizer.alive)
+            import desktop_service
+            self.assertIs(desktop_service.wait_capture, marker)
         finally:
-            reopened.dispose()
+            release.set()
+            self.wait_ui(self.ui)
+        self.assertEqual(gate_errors, [])
+        self.assertTrue((root / 'worker-exited.txt').is_file())
+        self.cleanup_widgets()
+        self.cleanup_widgets()  # Idempotent explicit + unittest cleanup.
+        self.assertFalse(root.exists())
+
+    def test_tk_predicate_error_is_returned_to_the_test(self):
+        def fail():
+            raise RuntimeError('controlled predicate error')
+        with self.assertRaisesRegex(RuntimeError, 'controlled predicate error'):
+            self.wait_tk(fail)
+
+    def test_tk_callback_error_cannot_pass_completion(self):
+        def fail():
+            raise RuntimeError('controlled Tk callback error')
+        callback = self.window.after(0, fail)
+        try:
+            with self.assertRaisesRegex(AssertionError, 'Tk callback failed'):
+                self.wait_tk(lambda: True)
+            self.assertEqual(len(self.callback_errors), 1)
+            self.callback_errors.clear()  # Explicit negative test only.
+        finally:
+            self.window.after_cancel(callback)
 
     def test_setup_file_picker_cancel_keeps_setup_and_does_not_import(self):
         self.ui.confirm_term()
