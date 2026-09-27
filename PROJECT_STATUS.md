@@ -1,6 +1,20 @@
 # 项目状态
 
 <a id="baseline"></a>
+## 2026-09-27 桌面界面与测试稳定性源码更新
+
+基于公开 `main` 的 `b7abbbfa0de8ec7d911622e29ff336ed2abaa90c` 整理，包含医学绿主题、
+侧栏与设置概览、随窗口宽度排列的 WakeUp / 苹果日历结果卡，以及 Windows / Mac 的滚动、焦点和对话框布局调整。
+两种格式各自绑定展示文件的哈希记录手机导入确认；线程和窗口测试等待真实结束后再清理临时目录。
+主题模块纳入构建源码指纹，包内自检同步覆盖新的设置入口。
+
+本次 Windows 隔离源码检查为 226 项：218 PASS、8 SKIP、0 FAIL，三组 JavaScript 和源码自检 PASS。
+最终 Mac 回传证据对应的限定源码集合一致，全量为 225 PASS、1 Windows CMD SKIP；本次没有重新运行 Mac。
+验证对象、历史失败与限制见 [源码整理记录](VERIFICATION.md#source-sync-20260927)。
+
+本次仅更新源码。应用仍为 `1.0.0-rc13`，书签仍为 `2026-09-26.14`；
+下方 rc13 下载附件保留发布时的界面，不包含本次改动。新 EXE/APP 构建、学校实采和手机导入为 NOT RUN。
+
 ## rc13 双平台预发布（2026-09-26）
 
 [PR #4](https://github.com/lhwen686/shsmu-schedule-sync/pull/4) 已合入 `main`（`cee1b98de6e2d898ef161608006f527838d38233`）；

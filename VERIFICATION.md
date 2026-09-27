@@ -1,5 +1,56 @@
 # 验证与修复记录
 
+<a id="source-sync-20260927"></a>
+## SOURCE-SYNC-20260927：桌面主题与测试生命周期源码整理
+
+基线为公开 `main` / `b7abbbfa0de8ec7d911622e29ff336ed2abaa90c`。将已完成的 UI、Mac 适配、等待线程和 Tk 窗口测试修订整理为源码提交；本次没有继续修改产品或测试实现。提交清单限定为 `desktop.py`、`desktop_theme.py`、`build_desktop.py`、`desktop_smoke.py`、`test_desktop.py`、`test_desktop_theme.py`、本记录和 `PROJECT_STATUS.md`。
+
+本轮在 Windows / Python 3.12.6、Tk 8.6.13、Pillow 12.3.0、icalendar 7.3.0 的已有环境中运行。导入产品前隔离 HOME、USERPROFILE、APPDATA、LOCALAPPDATA、TEMP、TMP、Downloads，使用合成数据。
+
+| 本轮检查 | 实际结果 |
+| --- | --- |
+| `python -X utf8 check.py --python-timeout 1200` | 226 项：218 PASS、8 SKIP、0 FAIL/ERROR；Python 275.412 秒，完整命令 278.079 秒，退出 0；三组 JS PASS |
+| `python -X utf8 desktop.py --data-root ISOLATED --self-test REPORT` | PASS、退出 0、22.593 秒、frozen=false |
+| 测试前后文件哈希 | 公开跟踪文件和新增源码字节无漂移；文档在测试结束后补记 |
+| 冻结记录比对 | 71 个源码及配套文件与最终 Windows 冻结记录一致；历史验证文档另行保留 |
+| 提交审查 | 明确文件清单；新增内容凭证/私人绝对路径模式扫描无命中；6 个 CMD 与基线字节相同且保持 CRLF；`git diff --check` PASS |
+
+8 项 SKIP 为 6 项 Mac 专属检查、2 项当前 Windows 用户缺少符号链接权限的检查，不计为 PASS。
+差异审查覆盖独立格式确认、显示哈希失效、忙碌状态保护、构建指纹、线程实际退出和临时目录清理，并对照服务层校验与本轮回归结果。
+
+此前最终 Mac 回传材料的本机核验记录为 PASS：归档 SHA-256 `5f4510aebc1df218c62176bf3fbc37b571b70c01dc70d5adb7eb660747d440bc`，45 个成员、44 项校验和一致；25 项产品和 48 项测试依赖的安全文本规范化指纹与 Windows 对应集合一致。Mac 最终全量为 226 项：225 PASS、1 Windows CMD SKIP、3 组 JS PASS、源码自检 PASS；首轮非零退出保留在原记录中。本次仅复核现有记录及本地冻结身份，没有执行新的 Mac 运行，也不声称完整仓库 raw 字节一致或重建缺失的 Mac 执行器。
+
+旧 UI-FINAL / WAIT-STABILITY 的 FAIL、BLOCKED 记录保留其原版本归属；最终修订已通过 Windows 本轮与上述 Mac 对应源码检查。底层 Windows I/O 原因仍为 UNKNOWN，有限回归不证明性能问题已修复。
+本轮原始日志、文件备份和清单保留在维护工作区忽略目录 `local/source-sync-20260927/`。本次没有学校实采、真实 WebCal、书签安装、手机导入、原生窗口人工复验、EXE/APP 构建或新 Release；这些项目为 NOT RUN。现有 rc13 附件和版本保持原发布状态。
+
+<a id="ui-windows-20260927"></a>
+## UI-WINDOWS-20260927：医学绿桌面源码候选（未发布）
+
+2026-09-27，在现场核对的公开 main `b7abbbfa0de8ec7d911622e29ff336ed2abaa90c` 干净副本上实施。保留 Tkinter/ttk、Pillow 和原服务层；新增 `desktop_theme.py`，统一侧栏、有限宽度内容区、步骤/学期/结果卡与焦点。覆盖首次引导、更新、等待/处理、双导出结果、设置概览及原编辑器、帮助、导入说明、作息表和错误/诊断对话框。
+
+两张结果卡保存独立展示哈希，确认前重新核对相应就绪状态与精确文件哈希；已确认方框是只读回执。没有完整课表时回到引导，双导出失败不显示成功文案。首页的重新生成仍走 export_only。业务/采集器、版本、CMD 字节和参考资料未变；新展示模块已进入 BUILD_INPUTS，通过静态导入随原打包入口收集，Mac spec 不需要新增资源。
+
+所有测试在导入产品模块之前隔离 HOME、USERPROFILE、LOCALAPPDATA、APPDATA、TEMP、TMP、Downloads 和诊断根。现有 Python 3.12.6 / Pillow 12.3.0 / icalendar 7.3.0 / Tk 8.6.13 环境，无新增依赖。
+
+| 实际检查 | 结果 |
+| --- | --- |
+| 改前 test_desktop + test_platform_support | 78 项：72 PASS、6 Mac SKIP；退出 0。此前系统 Python 缺 icalendar 的 2 项导入错误单独保留 |
+| 最终 `python -X utf8 -m unittest -v test_desktop test_platform_support test_desktop_theme` | 90 项：84 PASS、6 SKIP、0 FAIL/ERROR；退出 0 |
+| `python -X utf8 check.py` 默认 180 秒 | Python 组超时，退出 1；三组 JS PASS；保留原日志 |
+| `python -X utf8 check.py --python-timeout 600` | 218 项：210 PASS、8 SKIP、0 FAIL/ERROR；三组 JS PASS；退出 0 |
+| 源码 `python -X utf8 desktop.py --self-test <隔离报告路径>` | PASS、退出 0、frozen=false；不代表 EXE/APP 验收 |
+
+完整检查的 8 项 SKIP 分别为 6 项 Mac 专属检查、2 项当前 Windows 用户缺少符号链接权限的检查；未把 SKIP 计入 PASS。
+
+最终三项检查的测试对象 SHA-256 均为 `548d9997e41f73f90be91ea58d8eaf94f560dc63ae389751925008fb8a140329`，每次运行前后相同；它涵盖实际产品/测试文件字节，不以 HEAD 代替未提交源码身份。产品 BUILD_INPUTS 指纹、逐文件前后哈希、未修改依赖及设计哈希另见本轮交接 manifest。
+
+原生 Windows 11 / 200%（DPI 192，Tk scaling 2.668768）已核对主要页面、正常双卡/窄窗口堆叠、Tab/Shift+Tab、Enter/Space、滚动及焦点余量、选文件取消后继续原等待、CSV 与 ICS 各自 Explorer 定位、长设置页和诊断保存/隐私文字。客户区常规 2162×1375、窄窗口 1601×1041。诊断布局另有 100%/125%/150%/200% Tk **模拟**测试；真实 100%/125%/150% **NOT RUN**，没有改系统缩放。
+
+原生截图、失败迭代、隔离启动器、原始日志和源码快照在维护工作区忽略目录 `local/ui-windows-20260927/`；交接包含简短对照图和必要原图。保留定稿文案、真实范围/数量/时间/差异和安全/恢复信息，因此部分页面需要正常滚动；Tk 字体、图标与禁用态有已说明的渲染差异。浏览器 file:// 被工具策略拒绝，computed style / DOM 边界实测 **NOT RUN**，未用其他通道绕过。原型与 PNG 字节未改。
+
+本轮 Mac 原生、学校实采、真实书签安装、手机导入、其他电脑、EXE/APP 构建与安装包验收全部 **NOT RUN**。没有提交、推送、改远端、改版本或发布。Windows 共享源码冻结，等待 Mac 交接；此前发布与历史 PASS 仅代表其原来的版本。
+
+
 <a id="release-rc13"></a>
 ## RELEASE-RC13：双平台预发布及回下载验收
 
@@ -812,3 +863,50 @@ RC7 的原生窗口核对覆盖初次启动、已有课表时启动、等待书�
 
 **未运行：** 本版学校实采、手机导入、另一台无 Python 电脑、Windows 系统实际切换缩放、安全软件真实拦截流程及两名同学独立操作。包内自检和开发机窗口核对不替代这些验收。使用说明的浏览器视觉检查未在本次重跑，完整实机待验清单见 STUDENT_ACCEPTANCE.md。
 <!-- END PRESERVED VERIFICATION HISTORY -->
+
+
+## 2026-09-27 UI-FINAL：接回 Mac r3 与 Windows 最终回归
+
+状态：源码限定接回 PASS；Windows 最终回归 FAIL，验收门禁 BLOCKED。不是发布验收通过。
+
+- 对象为公开源码副本 main / HEAD `b7abbbfa0de8ec7d911622e29ff336ed2abaa90c` 加既有 Windows 未提交 UI 改动。核对 Windows/Mac handoff、逐文件 before/after 和依赖后，仅接回 desktop.py、desktop_theme.py、test_desktop.py、test_desktop_theme.py；本记录另行追加。原有未提交改动、CMD 和二进制原字节保留。
+- Windows 11 10.0.26200 / Python 3.12.6 AMD64 / Tk 8.6.13 / Node 24.19.0，沿用已有解释器。每个子进程在导入产品前隔离 HOME、USERPROFILE、APPDATA、LOCALAPPDATA、临时目录、下载目录、preferences 和启动/fallback diagnostics，全部使用合成数据。
+- 定向 `-m unittest -v test_desktop test_desktop_theme test_platform_support`：exit 1，93 项中 85 PASS、2 FAIL、6 Mac SKIP。`check.py --python-timeout 1200`：exit 1，221 项中 212 PASS、1 FAIL、8 SKIP，另 3 组 JS PASS；Windows CMD 用例 PASS，额外 2 项 SKIP 为符号链接权限不足。未放宽单项断言。
+- 全量失败为 `test_waiter_accepts_new_download_but_not_old_file_after_picker_cancel` 的 5 秒 join 后 busy 断言；定向另有 `test_worker_duplicate_start_and_manual_file_while_waiting` 同类失败。独立对照曾前后各 2 PASS；保留原 5 秒断言的后续观察中，接回前测试原件也复现失败。失败堆栈位于未改动的诊断文件替换或导出说明读取路径；底层耗时原因 UNKNOWN，未扩展修改业务逻辑。
+- 源码 `desktop.py --data-root ISOLATED --self-test EVIDENCE/self-test.json`：exit 0 / PASS / frozen=false。各组测试前后产品与测试源码哈希稳定。
+- 真实 Windows GUI、实际系统 200% DPI：完整页面、默认/窄窗口双卡、等待中取消选文件继续等待、合成处理、部分/全部导出失败、Explorer 双格式定位、作息滚动、详情默认/最小尺寸、Tab/Enter 进入诊断、200% 默认诊断保存按钮/隐私提示均有截图或状态证据。场景切换和错误注入属于测试夹具；OS 输入自动化不等于物理鼠标。诊断最小窗口实机缩小未成功验证，实际 100/125/150% DPI 为 NOT RUN；四档模拟缩放用例 PASS，不能替代实机。
+- Windows 25 项产品 raw 指纹 `a3513d5079724703b11e40ffb1946d08607c75a514a182209f50ac5b04f681b8`；安全文本 CRLF→LF 后与 Mac r3 同为 `417c19a445e821d1bb448a7c432f4c42a1ef025682d1307428bb7f34c88ca88a`。48 项测试依赖 raw 为 `584ed75e98a2f421c460977f81aee7472ac32671eecdf7a1b907f236d1ff4a80`；两端 portable 同为 `eb8a1bfce9b6d03cb6c94d527106b286402c35977a504b2a037672ae7514f437`。CMD/二进制不做规范化；不宣称完整 raw 快照相同。
+- Mac r3 所提供证据：最终源码定向 93 PASS；全量 220 PASS、1 Windows CMD SKIP、3 组 JS PASS；源码自检 PASS。Mac 实机截图按其 r1/r2 原始身份归属，本轮未重跑 Mac；r3 仅新增原型证据。未在接回后修改影响 Mac 的公共源码/资源，因此无 FINAL_TO_MAC 增量；本记录是唯一新增文档内容差异。
+- 原始字节、限定 diff、逐文件指纹、完整命令/退出码、截图和原型对照存于维护者忽略目录 `local/ui-final-windows-20260927/`。学校实采、真实 WebCal、手机导入、书签安装验证、EXE/APP 构建、签名和发布均 NOT RUN；无 Git 写入或系统缩放/安全/网络改动。
+
+
+## 2026-09-27 WAIT-STABILITY-FIX：等待线程测试同步与清理
+
+Windows 本轮等待稳定性门禁：BLOCKED。只修改共享 test_desktop.py；产品源码、资源、UI、版本、DesktopJob/Service、sync 和 diagnostics 均未变。HEAD `b7abbbfa0de8ec7d911622e29ff336ed2abaa90c` / main 加已有未提交 UI 成果；旧失败记录保留。
+
+- 改前原 5 秒断言矩阵：10 次，6 PASS、4 FAIL。新文件已被接收后仍处理，最长接收后样本约 12.2 秒；独立自然完成观察约 14.4 秒，旧断言仍 FAIL。os.replace 单次调用观察到约 8.45 秒；其底层原因 UNKNOWN，不据此归因磁盘或安全软件。瞬间 picker set/clear 在改前 10 次中均未被 worker 观察到。
+- 修复以 Condition 确认 waiting、完整扫描和 picker 实际暂停；保留真实稳定检测、旧文件忽略与明确手选、新文件身份、一次提交、独立 CSV/ICS 字节与哈希、无错误、实际线程退出及锁释放。集成完成固定 30 秒预算；原取消检查仍为 3 秒。三个登记的 DesktopTests worker 使用有限 cleanup，活线程目录保留且报告失败；负向门闩验证 finished 不等于退出。
+- 候选 1 的新增报告比较因 JSON 持久化类型表示差异失败 2 项；候选 2 只规范该比较表示，完整字段与输出校验保留。没有第三轮修复、自动重试至成功或改业务校验。
+- 候选 2 小范围 5 PASS；A/B 交替 10 轮 20 PASS，再各 3 个独立子进程 6 PASS。定向 95 项：88 PASS、6 SKIP；同一个剩余用例产生 1 FAIL 和 1 清理 ERROR，两者不能当作两个独立失败用例相加；exit 1。
+- `check.py --python-timeout 1200`：主动中断；已输出 31 个 PASS，但没有整组统计，剩余 Python 与 JS 为 NOT RUN；exit 1。源码 self-test exit 0。定向剩余阻断为未修改的 `test_reopened_setup_imports_existing_json_and_exposes_both_exports`：5 秒 Tk 截止后 running 仍为真，随后目录清理 WinError 145。按两次候选修正上限停止代码修复；仅终止本轮隔离全量进程树以避免重复已知清理风险。中断后 A/B 各独立 3 次另外记录，不能冒称完成全量后的顺序验证。实际 SKIP 不算 PASS。
+- 所有进程在导入前隔离默认路径、preferences、临时与下载目录、启动/fallback diagnostics；实际模块来自内层公开源码副本，使用合成数据与已有 Windows Python 3.12.6。正式矩阵与观察性探针分别记录，没有并行运行回归或截图。
+- 产品 25 项 raw 指纹仍为 `a3513d5079724703b11e40ffb1946d08607c75a514a182209f50ac5b04f681b8`；安全 portable 仍为 `417c19a445e821d1bb448a7c432f4c42a1ef025682d1307428bb7f34c88ca88a`。48 项测试依赖 raw 为 `9a0bc705ce13c42a4a7133f5a39aed46f1a9a120ccf781e5558ca2aac4daf174`，portable 为 `5feafffb113236e7b479dde02dd2c2a34108b75fe038b3d7a6a3a7d587f7b041`。CMD/PNG 保留 raw 字节，desktop.py 混合换行不动。
+- 本轮证据在维护者忽略目录 `waiter-stability-20260927-162247`。生成 WAIT_FIX_TO_MAC 仅测试增量；产品快照未变，Mac 对新测试修订 NOT RUN，需定向复验，不要求无关页面重拍。底层 I/O 性能没有声称修复；有限次数通过不证明永不偶发。
+- 学校、真实 WebCal、浏览器/手机、产品构建、签名、发布、Git 写入与系统设置操作均 NOT RUN；本轮不重做 UI。回滚按本轮 before/after 原字节哈希保护执行，本轮未自动回滚。
+
+
+<a id="tk-widget-lifecycle-20260927"></a>
+## TK-WIDGET-LIFECYCLE-FIX-20260927 — Windows 源码门禁 PASS
+
+基线 main / b7abbbfa0de8ec7d911622e29ff336ed2abaa90c。只修共享窗口测试生命周期，产品字节未变；保留已有 UI 和 candidate2 的 WorkerObservation、核心测试与取消契约。
+`test_desktop.py` before `43379ccbb66afb96f48f6e1b13dbdc4872bb43a06a95281d3ffb5f3f47e11d54` → after `01e0c13705fa7ae55c322ec28122fc63da1068deffe17dc2575c0eb7bab9a10f`。
+
+旧 Windows targeted-final 的 1 FAIL + 1 cleanup ERROR 是同一 reopened 用例；原 5 秒截止后 running 仍真，dispose 后临时目录删除 WinError145。该原失败仍保留，本轮一次自然观察未复现；未将其他核心用例的 I/O 原因移植为本窗口根因，底层 I/O UNKNOWN。
+现在保留 mainloop + 短 after，以固定集成预算同时确认真实 UI 已消费终态、线程已退出，并传播回调异常；相关 fixture 单一清理入口管理初始/重开窗口、额外后台线程、mock 和目录。提交前请求既有取消，提交后等待；清理超时保留活动目录，不撤销 worker 依赖的 mock，不以 dispose 替代线程退出。保留真实按钮、JSON、CSV/ICS、准确文件定位、输入字节、bookmark_ack、更新首页及锁重取断言。
+
+三项新增回归（含门闩/心跳与预期超时、predicate/Tk 回调错误）PASS；目标新进程三次、三用例正反序、整个窗口类及六模块定向 PASS。受控 setUp 部分失败/提前断言失败保留原始预期失败，清理通过，单独计数。完整 `check.py --python-timeout 1200`（外层1560秒）实际结束：Ran 226 tests in 506.593s; OK (skipped=8)；全部根目录 JS 在该次执行。完整全量结束后目标及原两核心各一次 PASS，随后源码 self-test PASS。各批退出码、耗时、SKIP、PID和原始日志见本轮证据；最终批次无残留窗口测试线程/目录/poll。此前一次合并定向1200秒被外层监督中断，堆栈停在本轮逐用例重写审计JSON的取证代码；移除该额外同步I/O、改成结束时一次写出后重跑，旧中断不改写为PASS。
+候选1负向测量把堆栈取证 I/O 算入2秒限制而 FAIL；候选2修正堆栈计时边界后，在整个窗口类又发现Tk调度3.56秒超出额外2秒断言；候选3按after不可抢占契约验证固定deadline及实际到期失败，保留0.08秒负向期限、30秒集成期限和取消期限，外层watchdog有界监督，所有失败日志不改写。
+
+只读登记 `MAC_WAIT_FIX_RECORDS_TO_WINDOWS.zip`（SHA256 `8a9bf6ede1179dec8aa94597a6d9be14c9272de2925177e9802743baa4398330`）：包内59项校验一致；Mac candidate2 的170次限定 PASS 仅属于 before 测试哈希。不应用其中审计patch，不覆盖旧 Windows BLOCKED。本轮 after 在 Mac 为 NOT RUN。
+Windows 本轮源码门禁 PASS 不代表性能已修复、安装包可发布；EXE/APP构建、学校实采、手机、其他电脑及新 Mac 修订均 NOT RUN。未提交/推送/拉取/合并/切分支/安装依赖/修改浏览器或系统。
+本机忽略证据：`local/widget-lifecycle-20260927-174407`，含 FINAL_REPORT、COVERAGE_REVIEW、FROZEN_IDENTITY、限定diff及before原始备份；最终通过后仅生成一次最小 WIDGET_FIX_TO_MAC 测试增量。
