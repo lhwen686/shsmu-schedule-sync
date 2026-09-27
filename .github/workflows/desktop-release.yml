@@ -1,8 +1,8 @@
-name: Build and publish rc13 desktop packages
+name: Build and publish rc14 desktop packages
 
 on:
   push:
-    branches: ['codex/release-rc13']
+    branches: ['codex/release-rc14']
 
 permissions:
   contents: read
@@ -17,7 +17,7 @@ env:
   GIT_CONFIG_VALUE_1: lf
 
 concurrency:
-  group: desktop-rc13-release
+  group: desktop-rc14-release
   cancel-in-progress: false
 
 jobs:
@@ -54,7 +54,7 @@ jobs:
       - name: Upload verified native component
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ${{ matrix.platform }}-rc13
+          name: ${{ matrix.platform }}-rc14
           path: dist/upload/
           if-no-files-found: error
           retention-days: 14
@@ -74,18 +74,18 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: windows-rc13
+          name: windows-rc14
           path: artifacts/windows
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: macos-rc13
+          name: macos-rc14
           path: artifacts/macos
       - name: Compare source manifests and bookmark bytes, create ZIPs and checksums
         run: python -X utf8 .github/assemble_release.py
       - name: Upload reviewed release assets
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: rc13-release-assets
+          name: rc14-release-assets
           path: dist/release/
           if-no-files-found: error
           retention-days: 30
@@ -93,7 +93,7 @@ jobs:
   publish:
     name: Publish new candidate after both native checks pass
     needs: assemble
-    if: github.repository == 'lhwen686/shsmu-schedule-sync' && github.ref == 'refs/heads/codex/release-rc13'
+    if: github.repository == 'lhwen686/shsmu-schedule-sync' && github.ref == 'refs/heads/codex/release-rc14'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -104,7 +104,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: rc13-release-assets
+          name: rc14-release-assets
           path: release-assets
       - name: Verify every downloaded asset
         working-directory: release-assets
@@ -115,16 +115,16 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
-          gh release create v1.0.0-rc13 release-assets/* \
+          gh release create v1.0.0-rc14 release-assets/* \
             --target "$RELEASE_COMMIT" --prerelease \
-            --title "医学院课表助手 rc13 · Windows 与 Mac 界面与可靠性更新" \
+            --title "医学院课表助手 rc14 · Windows 与 Mac 医学绿界面更新" \
             --notes-file RELEASE_NOTES.md
       - name: Verify published asset names and exact bytes
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release download v1.0.0-rc13 --dir published-assets
+          gh release download v1.0.0-rc14 --dir published-assets
           python - <<'PY'
           from pathlib import Path
           expected = Path('release-assets')

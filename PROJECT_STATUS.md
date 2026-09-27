@@ -1,6 +1,17 @@
 # 项目状态
 
 <a id="baseline"></a>
+## rc14 双平台发布准备（2026-09-27）
+
+[PR #7](https://github.com/lhwen686/shsmu-schedule-sync/pull/7) 已合入 `main`，合并提交
+`ce218b9856af46460c5a68bdd313480e8418e5e6`。本轮使用独立分支 `codex/release-rc14`
+准备 Windows x64 / Apple 芯片 Mac 安装包，应用 `1.0.0-rc14`、Mac 修订 8、构建号 `14.0`。
+书签仍为 `2026-09-26.14`；本轮不修改采集器、个人历史或配置。
+
+发布以双平台同一提交完整检查、原生构建、冻结程序自检、源码/书签一致性、合包及附件校验全部通过为条件；
+完成前不将 rc14 标为发布 PASS。验收见 [rc14 验收表](STUDENT_ACCEPTANCE.md#acceptance-rc14)，
+执行记录见 [rc14 发布记录](VERIFICATION.md#release-rc14)。下方 rc13 和源码整理记录保留原时间归属。
+
 ## 2026-09-27 桌面界面与测试稳定性源码更新
 
 基于公开 `main` 的 `b7abbbfa0de8ec7d911622e29ff336ed2abaa90c` 整理，包含医学绿主题、

@@ -1,5 +1,16 @@
 # 验证与修复记录
 
+<a id="release-rc14"></a>
+## RELEASE-RC14：医学绿界面双平台安装包
+
+2026-09-27，用户授权合并与发布新安装包。PR #7 两次 Windows CI 均通过后合入 `main`（`ce218b9856af46460c5a68bdd313480e8418e5e6`）。在公开干净历史建立 `codex/release-rc14`；仅更新应用/Mac 版本、原有发布工作流和必要说明，保留采集器、服务层、CMD 原始字节及个人目录。
+
+候选为 `1.0.0-rc14` / Mac 修订 8 / 构建号 `14.0` / 书签 `2026-09-26.14`。Windows 与 Mac 必须从同一提交分别完成完整检查、原生构建及 `frozen=true` 自检；合包核对源码清单、版本、书签和 Mac 符号链接，全部通过后创建新的预发布，不覆盖 rc13 附件。
+
+本地已有 Windows Python 3.12.6 环境，在导入产品前隔离 HOME、USERPROFILE、APPDATA、LOCALAPPDATA、TEMP、TMP 和 Downloads；`python -X utf8 -m unittest -v test_packaging test_platform_support test_diagnostics` 实际 58 项，50 PASS、8 SKIP、0 FAIL/ERROR（23.169 秒，退出 0）。8 项 SKIP 为 6 项 Mac 专属及 2 项缺少符号链接权限的场景。新版源码自检 PASS、退出 0、frozen=false（13.860 秒），不能替代安装包自检。
+
+本条为准备记录；双平台原生执行、最终附件和线上回读目前为 NOT RUN，完成后追加实际结果。学校实采、手机导入、其他电脑、最终安装包完整原生窗口及全部缩放验收仍单独记录，不继承历史 PASS。
+
 <a id="source-sync-20260927"></a>
 ## SOURCE-SYNC-20260927：桌面主题与测试生命周期源码整理
 
