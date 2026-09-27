@@ -9,7 +9,31 @@
 
 本地已有 Windows Python 3.12.6 环境，在导入产品前隔离 HOME、USERPROFILE、APPDATA、LOCALAPPDATA、TEMP、TMP 和 Downloads；`python -X utf8 -m unittest -v test_packaging test_platform_support test_diagnostics` 实际 58 项，50 PASS、8 SKIP、0 FAIL/ERROR（23.169 秒，退出 0）。8 项 SKIP 为 6 项 Mac 专属及 2 项缺少符号链接权限的场景。新版源码自检 PASS、退出 0、frozen=false（13.860 秒），不能替代安装包自检。
 
-本条为准备记录；双平台原生执行、最终附件和线上回读目前为 NOT RUN，完成后追加实际结果。学校实采、手机导入、其他电脑、最终安装包完整原生窗口及全部缩放验收仍单独记录，不继承历史 PASS。
+以上为准备阶段记录。以下为同日实际发布结果，不以准备状态替代最终证据。
+
+[发布工作流 36317148883](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36317148883) 在源码 `b020baef05ae1456fa04a395d3e59780e52b3971` 上全部 PASS；[PR #8](https://github.com/lhwen686/shsmu-schedule-sync/pull/8) 合入 `main` 的提交为 `433087de22d96428bc2d38824696eca1596fa594`。[rc14 预发布](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc14) 提供六个附件，旧 rc13 附件保留。
+
+| 最终检查 | 实际结果 |
+| --- | --- |
+| Windows 原生完整检查 | 226 项：220 PASS、6 Mac SKIP、0 FAIL/ERROR；Python 210.973 秒，三组 JS PASS |
+| Mac arm64 原生完整检查 | 226 项：225 PASS、1 Windows CMD SKIP、0 FAIL/ERROR；Python 82.624 秒，三组 JS PASS |
+| 两端原生构建与冻结自检 | PASS；`frozen=true`、`python_on_path=false`、依赖位于包内、生成书签一致。Mac standalone ZIP 在中文空格路径用 ditto 重解压，codesign 结构验证和再次冻结自检 PASS；这不等于 Developer ID 签名或 Apple 公证 |
+| 合包及线上回读 | PASS；两端源码清单/指纹一致、ZIP CRC 与重复成员检查通过，六个公开附件名称及字节与待发布文件完全一致 |
+| 本机独立下载审查 | PASS；六个附件齐全、SHA-256 一致、三个 ZIP CRC 和预期成员一致、单平台/双平台文件字节一致；64 个 Mac 符号链接类型和目标一致；包内每项源码哈希与发布标签 Git blob 一致 |
+| 下载后的 Windows EXE | PASS、退出 0；中文空格路径，隔离默认数据/临时目录，PATH 仅系统目录，`frozen=true`、`python_on_path=false`；无真实学校/个人数据 |
+
+两端源码指纹：`5cca1844f1a5d2a021596d6b3ef0cfb21542b8d2e91935b7b5bc02ff126c6649`。生成书签 SHA-256：`c1e53f85ad19f87c82e0b5850f2e183f80686846f1a54ed790df792493ac154f`。
+
+| 公开产物 | SHA-256 |
+| --- | --- |
+| 双平台 ZIP | `751daa68ef1fc877e96a368903ac0f8767f361f227064277a987194a87d3ac4f` |
+| Windows x64 ZIP | `c14f4f2edbfb1c063e12784419220b0c76565b284f50b0c92331e74b1fada689` |
+| Mac arm64 ZIP | `61a1d7f42101d137d29faa7fb39e598b1fe2fc7c12c3215309a166330bbcbbed` |
+| Windows EXE | `06d4b34feed9645b9f27acbbcf4a1e9593e7dc2eea1701c3a0e9c70801305659` |
+| User-Guide.html | `56e132d8f9a5d1b3d6177160534d8fbe49cc41e1b5970c987cbb536ee8b778a1` |
+| build-verification.json | `58fc793b47a59e08f7734aa30f3c07aa75ebc6a4d433d516599a25304b7b87e0` |
+
+原始工作流日志、回下载附件、审查脚本及本机 EXE 报告留在维护工作区忽略目录 `local/release-rc14/`。本轮仅公开版本源码、通用文档和明确附件；CMD 与基线原始 CRLF 字节一致。学校实采、手机导入、其他电脑、最终安装包完整原生窗口及全部缩放验收仍为 NOT RUN，见学生验收表；本轮未改浏览器、个人课表、配置或服务器。
 
 <a id="source-sync-20260927"></a>
 ## SOURCE-SYNC-20260927：桌面主题与测试生命周期源码整理

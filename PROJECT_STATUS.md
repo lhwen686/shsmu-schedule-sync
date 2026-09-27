@@ -1,16 +1,22 @@
 # 项目状态
 
 <a id="baseline"></a>
-## rc14 双平台发布准备（2026-09-27）
+## rc14 双平台预发布（2026-09-27）
 
 [PR #7](https://github.com/lhwen686/shsmu-schedule-sync/pull/7) 已合入 `main`，合并提交
-`ce218b9856af46460c5a68bdd313480e8418e5e6`。本轮使用独立分支 `codex/release-rc14`
-准备 Windows x64 / Apple 芯片 Mac 安装包，应用 `1.0.0-rc14`、Mac 修订 8、构建号 `14.0`。
+`ce218b9856af46460c5a68bdd313480e8418e5e6`。[PR #8](https://github.com/lhwen686/shsmu-schedule-sync/pull/8)
+已合入 `main`（`433087de22d96428bc2d38824696eca1596fa594`）。
+[v1.0.0-rc14 预发布](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc14)
+对应源码 `b020baef05ae1456fa04a395d3e59780e52b3971`，提供 Windows x64 / Apple 芯片 Mac 安装包，
+应用 `1.0.0-rc14`、Mac 修订 8、构建号 `14.0`。
 书签仍为 `2026-09-26.14`；本轮不修改采集器、个人历史或配置。
 
-发布以双平台同一提交完整检查、原生构建、冻结程序自检、源码/书签一致性、合包及附件校验全部通过为条件；
-完成前不将 rc14 标为发布 PASS。验收见 [rc14 验收表](STUDENT_ACCEPTANCE.md#acceptance-rc14)，
-执行记录见 [rc14 发布记录](VERIFICATION.md#release-rc14)。下方 rc13 和源码整理记录保留原时间归属。
+[发布工作流](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36317148883) 全部通过：
+Windows 220 PASS、6 SKIP，Mac 225 PASS、1 SKIP；两端三组 JS、原生构建、冻结自检和合包校验 PASS。
+六个附件经线上回读及本机独立回下载核对，64 个 Mac 符号链接、源码/书签指纹与包成员一致。
+下载后的 Windows EXE 在中文空格路径且 PATH 不含 Python 时自检 PASS。
+学校、手机及最终包完整原生窗口/全部缩放仍为 NOT RUN，见 [rc14 验收表](STUDENT_ACCEPTANCE.md#acceptance-rc14)。
+哈希和执行记录见 [rc14 发布记录](VERIFICATION.md#release-rc14)。下方 rc13 和源码整理记录保留原时间归属。
 
 ## 2026-09-27 桌面界面与测试稳定性源码更新
 
