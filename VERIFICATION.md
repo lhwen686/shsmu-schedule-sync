@@ -9,6 +9,32 @@
 
 真实学校采集/耗时、手机导入、最终 EXE/APP 人工窗口与实际缩放验收为 NOT RUN。源码和包内合成检查不能替代实机验收，也不宣称学校采集达到一分钟。
 
+以上为发布准备记录。以下为本轮实际结果，未完成的实机验收仍保留 NOT RUN。
+
+[发布工作流 36444937755](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36444937755) 全部 PASS；[rc15 预发布](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc15) 对应源码 `4501d8e5d63e9c2dd1b10919b38260193495d178`，提供六个附件。旧 rc14 附件保留，发布标签未重写。
+
+| 本轮检查 | 实际结果 |
+| --- | --- |
+| Windows 原生完整检查 | 231 项：224 PASS、7 Mac SKIP、0 FAIL/ERROR，Python 114.273 秒，三组 JS PASS |
+| Mac arm64 原生完整检查 | 231 项：230 PASS、1 Windows CMD SKIP、0 FAIL/ERROR，Python 90.962 秒，三组 JS PASS |
+| 原生构建与冻结自检 | 两端 PASS；`frozen=true`、`python_on_path=false`、依赖和生成书签核对通过；Mac standalone ZIP 经中文空格路径 ditto 重解压，codesign 结构与再次冻结自检 PASS；不等于 Developer ID 签名或 Apple 公证 |
+| 合包及线上回读 | PASS：两端源码和书签一致、ZIP 校验通过；六个附件名称及字节与待发布产物完全相同 |
+| 本机独立回下载 | PASS：六个附件齐全、SHA-256、三个 ZIP CRC/成员、包间文件字节及 64 个 Mac 符号链接一致；25 项源码哈希与发布提交 Git blob 完全一致 |
+| 下载后的 Windows EXE | PASS，退出 0；中文空格路径，隔离 HOME/用户/临时/课表目录，PATH 仅系统目录；`frozen=true`、`python_on_path=false`、rc15、书签 `.16` |
+
+两端源码指纹：`e12547a6b70cb20dd0fdd7192580ce17dac16e85c7ebb3c120d0e3e358813452`。生成书签 SHA-256：`009c0d6d27ff9caa899a81fc8d584ff53140641f1b25eb853b185350a1a5bcb0`。
+
+| 公开产物 | SHA-256 |
+| --- | --- |
+| SHSMU-Schedule-Assistant-1.0.0-rc15-Mac-arm64.zip | `f6b822afa0281db46dbbd7d1c711c69ff1fdd32ec89f234045842a79e848418e` |
+| SHSMU-Schedule-Assistant-1.0.0-rc15-Windows-x64-Mac-arm64.zip | `99c36a25e33dab1a9153254d1bbc4ade5db8609ee586c998322b4353c5663aac` |
+| SHSMU-Schedule-Assistant-1.0.0-rc15-Windows-x64.zip | `ed7d635902d0fe3046ecf599f52af575199eb080bdf240821444d25cb78f947c` |
+| User-Guide.html | `608f066e24b77f403589a2cb40c59864d9fc907d6f76c1f1991ec6b35b0dede3` |
+| build-verification.json | `bfa7c8d5b26685dae81cb3d02df003c22d529216479d2a802f9c7bb8f9233ee1` |
+| Windows EXE | `fa3a10790b5141c2e26c5488b038b6b9095945ac0024feb514f333edf3c42be2` |
+
+原始工作流日志、附件、审查脚本与 EXE 报告留在维护工作区忽略目录 `local/release-rc15/`。仅发布允许清单内的源码、通用说明和构建产物；不含个人课表、配置或原始学校数据。真实学校采集/耗时、手机导入、最终包人工窗口和所有实际缩放验收仍为 NOT RUN。
+
 <a id="perf-ui-20260928"></a>
 ## PERF-UI-20260928：读取提速、Windows 滚动卡顿、Mac 字号与滚动条
 

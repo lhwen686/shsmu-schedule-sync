@@ -7,8 +7,8 @@
 
 | 项目 | 本版状态 |
 | --- | --- |
-| 双平台完整检查、原生构建和冻结自检 | NOT RUN，发布门禁待执行 |
-| 源码/书签指纹、ZIP/附件哈希和 Mac 符号链接 | NOT RUN，待发布回下载核验 |
+| 双平台完整检查、原生构建和冻结自检 | PASS：同一源码 `4501d8e`，两端各 231 项；Windows 224 PASS、7 Mac SKIP，Mac 230 PASS、1 Windows CMD SKIP；三组 JS、原生构建、冻结自检、Mac 重解压与签名结构检查通过；回下载 Windows EXE 自检 PASS |
+| 源码/书签指纹、ZIP/附件哈希和 Mac 符号链接 | PASS：六个附件线上回读和本机独立回下载通过；25 项源码哈希与发布提交 Git blob 一致；三个 ZIP、包间文件字节及 64 个 Mac 符号链接一致 |
 | 最终 EXE/APP 人工窗口、Windows 实际各档缩放、Mac 鼠标/Dock | NOT RUN |
 | 学校短/全范围、真实耗时、网页核对、独立重复采集 | NOT RUN；合成耗时不等于学校实测 |
 | 手机导入、其他电脑 | NOT RUN；Intel Mac 不在本版构建范围 |
