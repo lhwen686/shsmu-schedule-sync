@@ -1,5 +1,14 @@
 # 验证与修复记录
 
+<a id="release-rc15"></a>
+## RELEASE-RC15：滚动性能与读取修复双平台附件
+
+2026-09-28，用户授权更新下载附件。基线为已合并 PR #9 的公开 main `2c77b711b9390e87b66c0771468af06d6fb481a4`，干净公开 checkout，新建 `codex/release-rc15`。仅修改版本、发布工作流、打包版本断言和维护/用户说明，保留产品修复、CMD 字节及个人目录。
+
+候选 `1.0.0-rc15` / Mac 修订 9 / 构建号 `15.0` / 书签 `2026-09-28.16`。同一提交分别在 Windows 与 Mac 运行完整检查、原生构建和冻结自检，合包核对源码清单、书签、ZIP 及 Mac 符号链接；全部通过后发布新的预发布，保留旧 rc14 附件。本地发布准备检查：Windows / Python 3.12.6，`python -X utf8 -m unittest -v test_packaging test_platform_support test_diagnostics`，59 项：51 PASS、8 SKIP、0 FAIL/ERROR（24.361 秒，退出 0）。8 项跳过为 6 项 Mac 专属及 2 项符号链接权限场景；CMD 和清单外跟踪文件哈希未改变。两端完整检查和最终包证据待发布工作流执行。
+
+真实学校采集/耗时、手机导入、最终 EXE/APP 人工窗口与实际缩放验收为 NOT RUN。源码和包内合成检查不能替代实机验收，也不宣称学校采集达到一分钟。
+
 <a id="perf-ui-20260928"></a>
 ## PERF-UI-20260928：读取提速、Windows 滚动卡顿、Mac 字号与滚动条
 
