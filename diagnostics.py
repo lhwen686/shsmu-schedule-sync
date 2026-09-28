@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from platform_support import default_data_root, select_data_root
 
-APP_VERSION = '1.0.0-rc14'
+APP_VERSION = '1.0.0-rc15'
 MAX_DISK = 50 * 1024 * 1024
 MAX_MATERIAL = 8 * 1024 * 1024
 MAX_INPUT = 20_000_000

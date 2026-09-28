@@ -1,6 +1,13 @@
 # 项目状态
 
 <a id="baseline"></a>
+## rc15 双平台预发布（2026-09-28）
+
+基于已合并的公开 main `2c77b71`，发布分支 `codex/release-rc15`。应用 `1.0.0-rc15`、Mac 修订 9 / 构建号 `15.0`，书签 `2026-09-28.16`；保留现有设计及 PR #9 修复，仅更新发布版本、工作流和说明。
+[rc15 下载页](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc15) 已发布六个附件，对应源码 `4501d8e5d63e9c2dd1b10919b38260193495d178`。[发布工作流](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36444937755) 全部通过：Windows 224 PASS、7 SKIP，Mac 230 PASS、1 SKIP；两端三组 JS、原生构建、冻结自检、合包和线上回读 PASS。
+本机回下载核对六个附件、25 项源码哈希和 64 个 Mac 符号链接通过；下载后的 Windows EXE 在中文空格路径、隔离数据及无 Python PATH 下自检 PASS。
+升级后需手动替换 `.16` 书签。学校实采/耗时、手机导入、最终 EXE/APP 人工窗口及实际缩放仍为 NOT RUN；旧 rc14 附件保留。详见 [rc15 记录](VERIFICATION.md#release-rc15) 与 [验收表](STUDENT_ACCEPTANCE.md#acceptance-rc15)。
+
 ## 2026-09-28 读取提速与界面性能源码更新（未发布）
 
 分支 `codex/perf-ui-20260928` 基于 `main` `8368647`。书签源码修订 `2026-09-28.16`：课程详情最多 3 个请求同时进行，失败后自动回到逐条读取；

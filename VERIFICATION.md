@@ -1,5 +1,40 @@
 # 验证与修复记录
 
+<a id="release-rc15"></a>
+## RELEASE-RC15：滚动性能与读取修复双平台附件
+
+2026-09-28，用户授权更新下载附件。基线为已合并 PR #9 的公开 main `2c77b711b9390e87b66c0771468af06d6fb481a4`，干净公开 checkout，新建 `codex/release-rc15`。仅修改版本、发布工作流、打包版本断言和维护/用户说明，保留产品修复、CMD 字节及个人目录。
+
+候选 `1.0.0-rc15` / Mac 修订 9 / 构建号 `15.0` / 书签 `2026-09-28.16`。同一提交分别在 Windows 与 Mac 运行完整检查、原生构建和冻结自检，合包核对源码清单、书签、ZIP 及 Mac 符号链接；全部通过后发布新的预发布，保留旧 rc14 附件。本地发布准备检查：Windows / Python 3.12.6，`python -X utf8 -m unittest -v test_packaging test_platform_support test_diagnostics`，59 项：51 PASS、8 SKIP、0 FAIL/ERROR（24.361 秒，退出 0）。8 项跳过为 6 项 Mac 专属及 2 项符号链接权限场景；CMD 和清单外跟踪文件哈希未改变。两端完整检查和最终包证据待发布工作流执行。
+
+真实学校采集/耗时、手机导入、最终 EXE/APP 人工窗口与实际缩放验收为 NOT RUN。源码和包内合成检查不能替代实机验收，也不宣称学校采集达到一分钟。
+
+以上为发布准备记录。以下为本轮实际结果，未完成的实机验收仍保留 NOT RUN。
+
+[发布工作流 36444937755](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36444937755) 全部 PASS；[rc15 预发布](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc15) 对应源码 `4501d8e5d63e9c2dd1b10919b38260193495d178`，提供六个附件。旧 rc14 附件保留，发布标签未重写。
+
+| 本轮检查 | 实际结果 |
+| --- | --- |
+| Windows 原生完整检查 | 231 项：224 PASS、7 Mac SKIP、0 FAIL/ERROR，Python 114.273 秒，三组 JS PASS |
+| Mac arm64 原生完整检查 | 231 项：230 PASS、1 Windows CMD SKIP、0 FAIL/ERROR，Python 90.962 秒，三组 JS PASS |
+| 原生构建与冻结自检 | 两端 PASS；`frozen=true`、`python_on_path=false`、依赖和生成书签核对通过；Mac standalone ZIP 经中文空格路径 ditto 重解压，codesign 结构与再次冻结自检 PASS；不等于 Developer ID 签名或 Apple 公证 |
+| 合包及线上回读 | PASS：两端源码和书签一致、ZIP 校验通过；六个附件名称及字节与待发布产物完全相同 |
+| 本机独立回下载 | PASS：六个附件齐全、SHA-256、三个 ZIP CRC/成员、包间文件字节及 64 个 Mac 符号链接一致；25 项源码哈希与发布提交 Git blob 完全一致 |
+| 下载后的 Windows EXE | PASS，退出 0；中文空格路径，隔离 HOME/用户/临时/课表目录，PATH 仅系统目录；`frozen=true`、`python_on_path=false`、rc15、书签 `.16` |
+
+两端源码指纹：`e12547a6b70cb20dd0fdd7192580ce17dac16e85c7ebb3c120d0e3e358813452`。生成书签 SHA-256：`009c0d6d27ff9caa899a81fc8d584ff53140641f1b25eb853b185350a1a5bcb0`。
+
+| 公开产物 | SHA-256 |
+| --- | --- |
+| SHSMU-Schedule-Assistant-1.0.0-rc15-Mac-arm64.zip | `f6b822afa0281db46dbbd7d1c711c69ff1fdd32ec89f234045842a79e848418e` |
+| SHSMU-Schedule-Assistant-1.0.0-rc15-Windows-x64-Mac-arm64.zip | `99c36a25e33dab1a9153254d1bbc4ade5db8609ee586c998322b4353c5663aac` |
+| SHSMU-Schedule-Assistant-1.0.0-rc15-Windows-x64.zip | `ed7d635902d0fe3046ecf599f52af575199eb080bdf240821444d25cb78f947c` |
+| User-Guide.html | `608f066e24b77f403589a2cb40c59864d9fc907d6f76c1f1991ec6b35b0dede3` |
+| build-verification.json | `bfa7c8d5b26685dae81cb3d02df003c22d529216479d2a802f9c7bb8f9233ee1` |
+| Windows EXE | `fa3a10790b5141c2e26c5488b038b6b9095945ac0024feb514f333edf3c42be2` |
+
+原始工作流日志、附件、审查脚本与 EXE 报告留在维护工作区忽略目录 `local/release-rc15/`。仅发布允许清单内的源码、通用说明和构建产物；不含个人课表、配置或原始学校数据。真实学校采集/耗时、手机导入、最终包人工窗口和所有实际缩放验收仍为 NOT RUN。
+
 <a id="perf-ui-20260928"></a>
 ## PERF-UI-20260928：读取提速、Windows 滚动卡顿、Mac 字号与滚动条
 
