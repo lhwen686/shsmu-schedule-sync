@@ -122,4 +122,75 @@ const timeoutRead = createSchoolReader(origin, {
 await assert.rejects(() => timeoutRead(path,params), e => e.code === 'TIMEOUT' && e.request.attempt === 3);
 assert.equal(pending.size,0);
 assert.equal(cleared,5);
-console.log('PASS (synthetic): bounded requests and body timeouts, timer cleanup, missing AbortSignal/fetch/AbortController, direct and fallback XHR, retries, redirects and sanitized failures.');
+
+// Virtual clock: overlapping reads, start spacing and failure degradation.
+function simulation(latency, fail=()=>false, status=()=>200) {
+  let now = 0, active = 0, peak = 0;
+  const timers = [], starts = [], finishes = [];
+  const at = (ms, fn) => timers.push({time:now + Math.max(0, ms), fn});
+  const io = {
+    concurrency:3, now:() => now, sleep:ms => new Promise(resolve => at(ms, resolve)),
+    setTimeout:() => 0, clearTimeout:() => {},
+    fetch:url => new Promise((resolve, reject) => {
+      const index = starts.length;
+      starts.push(now);
+      peak = Math.max(peak, ++active);
+      at(latency(index), () => {
+        active--;
+        finishes.push(now);
+        if (fail(index)) reject(new TypeError('Failed to fetch'));
+        else resolve(ok(url, {ok:status(index) < 300, status:status(index), text:async () => '[{"ID":' + index + '}]'}));
+      });
+    })
+  };
+  async function drive(work) {
+    let settled = false, error;
+    work.then(() => { settled = true; }, e => { error = e; settled = true; });
+    for (let turn = 0; turn < 100000; turn++) {
+      await new Promise(resolve => setImmediate(resolve));
+      if (settled) break;
+      timers.sort((a, b) => a.time - b.time);
+      const timer = timers.shift();
+      assert(timer, 'simulation stalled');
+      now = timer.time;
+      timer.fn();
+    }
+    if (error) throw error;
+  }
+  return {io, drive, starts, finishes, get peak() { return peak; }, get now() { return now; }};
+}
+const detailPath = '/Home/GetCalendarTable';
+const many = (read, count) => Promise.all(Array.from({length:count}, (_, i) => read(detailPath, {MCSID:String(i)})));
+let sim = simulation(() => 1200);
+await sim.drive(many(createSchoolReader(origin, sim.io), 128));
+assert.equal(sim.peak, 3, 'never more than three school reads in flight');
+assert(sim.starts.every((time, i) => i === 0 || time - sim.starts[i - 1] >= 250), 'request starts stay spaced');
+assert(sim.now <= 60000, `128 reads of 1.2 s should finish near one minute, took ${sim.now} ms`);
+
+sim = simulation(() => 1200, index => index === 4);
+await sim.drive(many(createSchoolReader(origin, sim.io), 20));
+const later = sim.starts.filter(time => time > sim.finishes[4]);
+assert(later.length > 10);
+for (let i = 1; i < later.length; i++)
+  assert(later[i] - later[i - 1] >= 2200, 'after a failure reads return to one at a time with a 1 s gap');
+
+for (const code of [429, 401, 403]) {
+  sim = simulation(index => index === 0 ? 10 : 1200, () => false, index => index === 0 ? code : 200);
+  const outcomes = [];
+  const reader = createSchoolReader(origin, sim.io);
+  await sim.drive(Promise.all(Array.from({length:6}, (_, i) =>
+    reader(detailPath, {MCSID:String(i)}).then(() => 'ok', error => error.code))).then(list => outcomes.push(...list)));
+  assert.equal(sim.starts.length, 1, `after ${code} no queued read may reach the school`);
+  assert.equal(outcomes[0], code === 429 ? 'RATE_LIMIT' : 'ACCESS');
+  assert(outcomes.slice(1).every(code => code === 'CANCELLED'));
+  await sim.drive(reader(detailPath, {MCSID:'later'}));
+  assert.equal(sim.starts.length, 2, 'a later read (continue button) still runs');
+}
+
+sim = simulation(() => 1200);
+await sim.drive(many(createSchoolReader(origin, {...sim.io, concurrency:undefined}), 4));
+assert.equal(sim.peak, 1, 'readers without an explicit bound stay sequential');
+sim = simulation(() => 1200);
+await sim.drive(many(createSchoolReader(origin, {...sim.io, concurrency:50}), 8));
+assert.equal(sim.peak, 3, 'the bound cannot be raised above three');
+console.log('PASS (synthetic): bounded requests and body timeouts, timer cleanup, missing AbortSignal/fetch/AbortController, direct and fallback XHR, retries, redirects, sanitized failures, at most three spaced reads and sequential fallback after failure.');

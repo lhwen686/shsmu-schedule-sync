@@ -48,13 +48,13 @@ def self_test(report_path):
             page = service.bookmark_path.read_text(encoding='utf-8')
             bookmark = html.unescape(re.search(r'<a class="bookmark" href="([^"]+)"', page)[1])
             script = unquote(bookmark.removeprefix('javascript:'))
-            assert "const revision = '2026-09-26.14';" in script
+            assert "const revision = '2026-09-28.16';" in script
             for name in BROWSER_MODULES:
                 body = (service.resources / name).read_text(encoding='utf-8').replace('export ', '', 1)
                 assert body in script, f'安装页未包含完整资源：{name}'
             assert '课表助手 · v${revision}' in script
             assert 'Safari' in page
-            report.update(app_version=APP_VERSION, collector_revision='2026-09-26.14',
+            report.update(app_version=APP_VERSION, collector_revision='2026-09-28.16',
                           generated_bookmark_sha256=hashlib.sha256(bookmark.encode()).hexdigest(),
                           generated_bookmark_length=len(bookmark), bundled_bookmark_verified=True)
             def shown(text):

@@ -39,7 +39,7 @@ def main():
         assert result.returncode == 0 and report['status'] == 'PASS', report
         assert report['frozen'] and not report['python_on_path'], report
         assert report['dependency_paths_in_bundle'] and report['bundled_bookmark_verified'], report
-        assert report['app_version'] == APP_VERSION and report['collector_revision'] == '2026-09-26.14'
+        assert report['app_version'] == APP_VERSION and report['collector_revision'] == '2026-09-28.16'
         if is_mac:
             mac_component(native, upload / 'mac-component.zip')
             standalone = upload / f'SHSMU-Schedule-Assistant-{APP_VERSION}-Mac-arm64.zip'

@@ -48,6 +48,34 @@ for (const title of [null,'2026-2027 学年 第2 学期']) {
   await assert.rejects(()=>collectSchedule(config,{fetchJSON:async()=>({Title:title,List:[row]}),accountKey:async()=> 'a'.repeat(64),saveCapture:async()=>assert.fail('invalid term download'),status:()=>{}}),/返回学期/);
 }
 
+// Overlapping detail reads that finish out of order keep row order and pairing.
+const manyRows=Array.from({length:9},(_,i)=>({...row,ID:100+i,MCSID:`${200+i}`,Start:`2026-09-${String(10+i).padStart(2,'0')}T08:00:00`}));
+let inFlight=0, peak=0;
+const overlapped=await collectSchedule(config,{detailConcurrency:3,
+  fetchJSON:async(path,params)=>{
+    if(path==='/Home/GetCurriculumTable')return {Title:'2026-2027 学年 第1 学期',List:params.Start==='2026-09-07'?manyRows:[]};
+    peak=Math.max(peak,++inFlight);
+    await new Promise(resolve=>setTimeout(resolve,(9-Number(params.MCSID)%10)*3));
+    inFlight--;
+    return [{...detail,ID:Number(params.MCSID)}];
+  },accountKey:async()=> 'a'.repeat(64),saveCapture:async()=>{},status:()=>{}});
+assert.equal(peak,3);
+assert.deepEqual(overlapped.responses.slice(5).map(r=>r.params.MCSID),manyRows.map(r=>r.MCSID));
+assert(overlapped.responses.slice(5).every(r=>String(r.response[0].ID)===r.params.MCSID),'each detail stays with its own request');
+const kept=[], started=[];
+await assert.rejects(()=>collectSchedule(config,{detailConcurrency:3,
+  fetchJSON:async(path,params)=>{
+    if(path==='/Home/GetCurriculumTable')return {Title:'2026-2027 学年 第1 学期',List:params.Start==='2026-09-07'?manyRows:[]};
+    started.push(params.MCSID);
+    if(params.MCSID==='201')throw Object.assign(new Error('synthetic'),{code:'NETWORK',retryable:true});
+    await new Promise(resolve=>setTimeout(resolve,5));
+    return [{...detail}];
+  },onResponse:record=>{if(record.path==='/Home/GetCalendarTable')kept.push(record.params.MCSID);},
+  accountKey:async()=> 'a'.repeat(64),saveCapture:async()=>assert.fail('partial capture'),status:()=>{}}),
+  error=>error.code==='NETWORK');
+assert.deepEqual(started,['200','201','202'],'no new detail read starts after a failure');
+assert.deepEqual(kept.sort(),['200','202'],'reads already sent finish and can be resumed');
+
 const html = execFileSync(process.env.SHSMU_TEST_PYTHON || 'python', ['-X', 'utf8', '-c', `
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -176,7 +204,7 @@ assert.equal(blobs.length,resume?2:1,panels[0]?.textContent);
 const downloaded=JSON.parse(await blobs[blobs.length-1].text());
 assert.equal(downloaded.format,'shsmu-capture-v1');
 assert.equal(downloaded.complete,true);
-assert.equal(downloaded.collector_revision,'2026-09-26.14');
+assert.equal(downloaded.collector_revision,'2026-09-28.16');
 assert(downloaded.diagnostics.request_log.length > 0);
 assert(downloaded.diagnostics.request_log.every(entry => typeof entry.recorded_at === 'string'));
 assert(downloaded.diagnostics.request_log.filter(entry => entry.state==='success').every(entry => entry.duration_ms >= 0));

@@ -145,6 +145,8 @@ class AssistantWindow:
                                  padding=(self.px(58),self.px(38),self.px(58),self.px(28)))
         self.canvas_item = self.canvas.create_window(0, 0, anchor='nw', window=self.content)
         self.reset_scroll = True
+        self.content_size = None
+        self.wheel_rest = 0
         self.content.bind('<Configure>', self._content_configured)
         self.canvas.bind('<Configure>', self._resize)
         self.window.bind('<MouseWheel>', self._wheel)
@@ -228,13 +230,16 @@ class AssistantWindow:
     def _wheel(self, event):
         # Nested scrollable controls and native dialogs own their wheel events.
         if event.widget.winfo_toplevel() == self.window and event.widget.winfo_class() not in ('Text', 'TCombobox', 'Treeview', 'Listbox'):
-            self.canvas.yview_scroll(scroll_units(event.delta), 'units')
+            units, self.wheel_rest = scroll_units(event.delta, self.wheel_rest)
+            if units:
+                self.canvas.yview_scroll(units, 'units')
 
     def _resize(self, event):
-        width = min(event.width, self.px(746))
+        metrics = self.theme.metrics
+        width = min(event.width, self.px(metrics.content))
         self.canvas.itemconfigure(self.canvas_item, width=width)
         self.canvas.coords(self.canvas_item, max(0,(event.width-width)//2), 0)
-        gutter = self.px(58 if event.width >= self.px(746) else 30)
+        gutter = self.px(metrics.gutter if event.width >= self.px(metrics.content) else 30)
         self.content.configure(padding=(gutter,self.px(38),gutter,self.px(28)))
         self._wrap_labels()
 
@@ -250,6 +255,13 @@ class AssistantWindow:
             widget.configure(wraplength=width)
 
     def _content_configured(self, event):
+        # Scrolling moves the embedded frame, which also reports <Configure>.
+        # Only a real size change needs a new scroll region and rewrapping;
+        # resetting it on every step forced a full canvas redraw per step.
+        size = event.width, event.height
+        if size == self.content_size and not self.reset_scroll:
+            return
+        self.content_size = size
         self.canvas.configure(scrollregion=self.canvas.bbox('all'))
         self._wrap_labels()
         if self.reset_scroll:
