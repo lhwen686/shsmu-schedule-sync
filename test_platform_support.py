@@ -73,7 +73,7 @@ class PlatformTests(unittest.TestCase):
         widget = Mock()
         widget.winfo_toplevel.return_value = window
         widget.winfo_class.return_value = 'Canvas'
-        ui = SimpleNamespace(window=window, canvas=Mock())
+        ui = SimpleNamespace(window=window, canvas=Mock(), wheel_rest=0)
         with patch('sys.platform', 'darwin'):
             desktop.AssistantWindow._wheel(ui, SimpleNamespace(widget=widget, delta=-1))
             ui.canvas.yview_scroll.assert_called_once_with(1, 'units')
@@ -85,6 +85,24 @@ class PlatformTests(unittest.TestCase):
         widget.winfo_class.return_value = 'Text'
         desktop.AssistantWindow._wheel(ui, SimpleNamespace(widget=widget, delta=-1))
         ui.canvas.yview_scroll.assert_not_called()
+
+    def test_windows_precision_wheel_steps_accumulate(self):
+        window = object()
+        widget = Mock()
+        widget.winfo_toplevel.return_value = window
+        widget.winfo_class.return_value = 'Canvas'
+        ui = SimpleNamespace(window=window, canvas=Mock(), wheel_rest=0)
+        with patch('sys.platform', 'win32'):
+            for _ in range(3):
+                desktop.AssistantWindow._wheel(ui, SimpleNamespace(widget=widget, delta=-30))
+            ui.canvas.yview_scroll.assert_not_called()
+            desktop.AssistantWindow._wheel(ui, SimpleNamespace(widget=widget, delta=-30))
+            ui.canvas.yview_scroll.assert_called_once_with(1, 'units')
+            self.assertEqual(ui.wheel_rest, 0)
+            ui.canvas.reset_mock()
+            for delta in (60, 60, -240):
+                desktop.AssistantWindow._wheel(ui, SimpleNamespace(widget=widget, delta=delta))
+            self.assertEqual([c.args for c in ui.canvas.yview_scroll.call_args_list], [(-1, 'units'), (2, 'units')])
 
     def test_mac_installer_changes_guidance_without_changing_bookmark(self):
         config = {'semester': '2026-2027:1', 'start': '2026-09-07', 'end_exclusive': '2027-01-18'}

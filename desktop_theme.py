@@ -19,14 +19,17 @@ HOVER = '#125746'
 LINE = '#e2e8e4'
 SIDEBAR = '#f0f3f0' if sys.platform == 'darwin' else '#f3f6f3'
 NAV_SELECTED = '#dce9df' if sys.platform == 'darwin' else '#e1ece4'
+TILE_CENTER = 200  # Device pixels of flat centre per bordered background image.
 
 
 @dataclass(frozen=True)
 class Metrics:
     scale: float
     sidebar: int = 184
-    content: int = 746
-    gutter: int = 58
+    # macOS: a wider column with less inner margin. Its window was already
+    # 1080 points wide, so the narrow column mostly added blank space.
+    content: int = 860 if sys.platform == 'darwin' else 746
+    gutter: int = 40 if sys.platform == 'darwin' else 58
 
     def px(self, value):
         return max(1, round(value * self.scale)) if value else 0
@@ -35,7 +38,11 @@ class Metrics:
 class Theme:
     def __init__(self, window):
         self.window = window
-        self.metrics = Metrics(max(.75, window.winfo_fpixels('1i') / 96))
+        # Aqua Tk reports 72 dpi and already draws in points (Retina included).
+        # The former .75 floor shrank every Mac font to 3/4 of the design size
+        # while the window itself stayed full size.
+        floor = 1 if sys.platform == 'darwin' else .75
+        self.metrics = Metrics(max(floor, window.winfo_fpixels('1i') / 96))
         self.px = self.metrics.px
         self.family = ui_font_family(tkfont.families(window),
             tkfont.nametofont('TkDefaultFont', root=window).actual('family'))
@@ -53,7 +60,10 @@ class Theme:
         return (self.family, -self.px(size), weight)
 
     def tile(self, fill, border=LINE, radius=8, stripe=False):
-        side = self.px(24)
+        # ttk fills a bordered image element by *tiling* its centre, not by
+        # stretching it. A 2-3 px centre meant tens of thousands of image draws
+        # per card repaint, which stalled Windows scrolling for seconds.
+        side = self.px(24) + TILE_CENTER
         outer = SIDEBAR if fill in (SIDEBAR, NAV_SELECTED, '#e9efe9') else SURFACE
         image = Image.new('RGBA', (side * 3, side * 3), outer)
         draw = ImageDraw.Draw(image)
@@ -66,6 +76,11 @@ class Theme:
         self.images.append(photo)
         return photo
 
+    def tile_options(self, border):
+        # Keep the former 24 px minimum; an image element otherwise requests
+        # its full (now much larger) image size.
+        return {'border':border, 'padding':0, 'sticky':'nsew', 'width':self.px(24), 'height':self.px(24)}
+
     def button_style(self, name, fill, border, hover, *, foreground=TEXT, size=14, bold=False, padding=(14, 9)):
         element = self.prefix + name + '.border'
         self.style.element_create(element, 'image', self.tile(fill, border),
@@ -73,7 +88,7 @@ class Theme:
             ('focus', self.tile(fill, ACCENT)),
             ('pressed', self.tile(hover, ACCENT)),
             ('active', self.tile(hover, border)),
-            border=self.px(9), padding=0, sticky='nsew')
+            **self.tile_options(self.px(9)))
         self.style.layout(name, [(element, {'sticky':'nsew', 'children':[
             ('Button.focus', {'sticky':'nsew', 'children':[
                 ('Button.padding', {'sticky':'nsew', 'children':[('Button.label', {'sticky':'nsew'})]})]})]})])
@@ -85,9 +100,37 @@ class Theme:
     def frame_style(self, name, fill=SURFACE, border=LINE):
         element = self.prefix + name + '.border'
         self.style.element_create(element, 'image', self.tile(fill, border, 10),
-                                  border=self.px(11), padding=0, sticky='nsew')
+                                  **self.tile_options(self.px(11)))
         self.style.layout(name, [(element, {'sticky':'nsew'})])
         self.style.configure(name, background=fill)
+
+    def scroll_image(self, color=None):
+        # A slim rounded thumb centred in a wider, easy-to-grab track column.
+        # The flat centre is tall for the same tiling reason as tile().
+        width, pill, end = self.px(14), self.px(8), self.px(5)
+        height = end * 2 + TILE_CENTER
+        image = Image.new('RGBA', (width * 3, height * 3), SURFACE)
+        if color:
+            left = (width - pill) * 3 // 2
+            ImageDraw.Draw(image).rounded_rectangle((left, 3, left + pill * 3 - 1, height * 3 - 4),
+                                                    radius=pill * 3 // 2, fill=color)
+        photo = ImageTk.PhotoImage(image.resize((width, height), Image.Resampling.LANCZOS), master=self.window)
+        self.images.append(photo)
+        return photo, end
+
+    def scrollbar_style(self):
+        trough, thumb = self.prefix + 'Vertical.Scrollbar.trough', self.prefix + 'Vertical.Scrollbar.thumb'
+        width = self.px(14)
+        # Explicit heights: an image element otherwise requests its full image
+        # height, which would become the minimum thumb length.
+        self.style.element_create(trough, 'image', self.scroll_image()[0], sticky='ns', width=width, height=width)
+        normal, end = self.scroll_image('#cbd4ce')
+        self.style.element_create(thumb, 'image', normal,
+            ('pressed', self.scroll_image('#8f9d94')[0]), ('active', self.scroll_image('#adb9b1')[0]),
+            border=(0, end, 0, end), sticky='ns', width=width, height=end * 2 + self.px(20))
+        # No arrows or bevels; the widget keeps drag, click-to-page and wheel.
+        self.style.layout('Vertical.TScrollbar', [(trough, {'sticky':'ns', 'children':[
+            (thumb, {'expand':'1', 'sticky':'nswe'})]})])
 
     def check_image(self, selected=False, disabled=False):
         size=self.px(14)
@@ -133,7 +176,7 @@ class Theme:
             ('selected focus', self.tile(NAV_SELECTED, ACCENT, 7, stripe)),
             ('selected', self.tile(NAV_SELECTED, NAV_SELECTED, 7, stripe)),
             ('focus', self.tile(SIDEBAR, ACCENT, 7)),
-            ('active', self.tile('#e9efe9', '#e9efe9', 7)), border=self.px(8), padding=0, sticky='nsew')
+            ('active', self.tile('#e9efe9', '#e9efe9', 7)), **self.tile_options(self.px(8)))
         s.layout('Nav.TButton', [(element, {'sticky':'nsew','children':[
             ('Button.padding', {'sticky':'nsew','children':[('Button.label', {'sticky':'w'})]})]})])
         s.configure('Nav.TButton', font=self.font(13), foreground='#52665a', anchor='w',
@@ -156,8 +199,7 @@ class Theme:
         s.configure('Treeview', font=self.table_font, rowheight=self.table_font.metrics('linespace') + self.px(10),
                     background=SURFACE, fieldbackground=SURFACE, bordercolor=LINE)
         s.configure('Treeview.Heading', font=self.font(12,'bold'), background=SIDEBAR)
-        s.configure('Vertical.TScrollbar', arrowsize=self.px(10), background='#d4ddd5', troughcolor=SURFACE,
-                    borderwidth=0, relief='flat')
+        self.scrollbar_style()
         s.configure('TSeparator', background=LINE,lightcolor=LINE,darkcolor=LINE,bordercolor=LINE)
         s.configure('Horizontal.TProgressbar', background=ACCENT, troughcolor='#edf3ef', borderwidth=0)
 

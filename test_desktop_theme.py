@@ -48,6 +48,52 @@ class MedicalThemeTests(unittest.TestCase):
         self.assertEqual(self.ui.theme.font(27)[1],-self.ui.px(27))
         self.assertEqual(str(ttk.Style(self.window).lookup('Title.TLabel','foreground')),'#192d27')
 
+    def test_bordered_images_keep_minimum_size_with_large_tiled_centre(self):
+        from desktop_theme import TILE_CENTER
+        # ttk tiles the centre; a tiny centre stalled every repaint on Windows.
+        photo = self.ui.theme.tile('#ffffff')
+        self.assertGreaterEqual(photo.width() - 2*self.ui.px(11), TILE_CENTER)
+        button = ttk.Button(self.ui.content, text='合成')
+        self.addCleanup(button.destroy)
+        self.assertLess(button.winfo_reqheight(), self.ui.px(80))
+        nav = self.ui.nav_buttons[0]
+        self.assertLess(nav.winfo_reqheight(), self.ui.px(80))
+
+    def test_modern_scrollbar_has_no_arrows_and_tracks_the_view(self):
+        layout = str(self.window.tk.call('ttk::style','layout','Vertical.TScrollbar'))
+        self.assertNotIn('arrow', layout)
+        self.window.deiconify()
+        self.window.geometry('900x500')
+        self.window.update()
+        bar = self.ui.scrollbar
+        self.assertLessEqual(bar.winfo_width(), self.ui.px(16))
+        bar.set(.5, .75)
+        self.window.update()
+        middle = bar.winfo_width()//2
+        self.assertTrue(bar.identify(middle, round(bar.winfo_height()*.6)).endswith('thumb'))
+        for fraction in (.2, .9):
+            self.assertTrue(bar.identify(middle, round(bar.winfo_height()*fraction)).endswith('trough'))
+
+    def test_scrolling_does_not_rebuild_the_scroll_region(self):
+        self.saved()
+        self.window.deiconify()
+        self.window.geometry('1000x420')
+        self.ui.show_files()
+        self.window.update()
+        with patch.object(self.ui, '_wrap_labels') as rewrap:
+            for _ in range(3):
+                self.ui.canvas.yview_scroll(1, 'units')
+                self.window.update()
+            rewrap.assert_not_called()
+        self.assertGreater(self.ui.canvas.canvasy(0), 0)
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'Aqua point scale')
+    def test_mac_fonts_are_not_shrunk_below_design_size(self):
+        self.window.tk.call('tk','scaling',1.0)
+        self.ui._style()
+        self.assertEqual(self.ui.theme.metrics.scale, 1)
+        self.assertEqual(self.ui.theme.font(14)[1], -14)
+
     def test_platform_sidebar_palette_keeps_light_controls_readable(self):
         expected = '#f0f3f0' if sys.platform == 'darwin' else '#f3f6f3'
         style = ttk.Style(self.window)

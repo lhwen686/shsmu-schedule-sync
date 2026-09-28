@@ -59,11 +59,15 @@ def ui_font_family(available, fallback):
     return next((name for name in candidates if name in available), fallback)
 
 
-def scroll_units(delta):
+def scroll_units(delta, remainder=0):
+    """Return (units, remainder). Windows notches are 120; precision touchpads
+    send smaller steps, which accumulate instead of each rounding to zero."""
     if sys.platform == 'darwin':
         # Aqua supplies small deltas; Windows-style division would drop them.
-        return (-1 if delta > 0 else 1) * max(1, int(abs(delta))) if delta else 0
-    return -int(delta / 120)
+        return ((-1 if delta > 0 else 1) * max(1, int(abs(delta))) if delta else 0), 0
+    total = remainder + delta
+    units = -int(total / 120)
+    return units, total + units * 120
 
 
 def bookmark_shortcut():

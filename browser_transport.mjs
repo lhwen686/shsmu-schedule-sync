@@ -10,7 +10,29 @@ export function createSchoolReader(origin, io = {}) {
   const scheduleTimeout = io.setTimeout ?? setTimeout;
   const cancelTimeout = io.clearTimeout ?? clearTimeout;
   const allowed = new Set(['/Home', '/Home/GetCurriculumTable', '/Home/GetCalendarTable']);
-  let lastFinished = 0, transport = send && makeController ? 'fetch' : 'xhr';
+  // Detail reads may overlap, but never beyond this bound. Starts stay spaced;
+  // the first failure returns this capture to one request with a 1 s gap.
+  const limit = Math.max(1, Math.min(3, Math.floor(Number(io.concurrency) || 1)));
+  let lastFinished = -Infinity, lastStarted = -Infinity, active = 0, degraded = false, epoch = 0;
+  let transport = send && makeController ? 'fetch' : 'xhr';
+  const waiting = [];
+  // A non-retryable failure (429/401/403, redirect, bad body) ends the epoch:
+  // reads still queued from before it never reach the school. Later reads run.
+  async function acquire(ticket) {
+    for (;;) {
+      if (ticket !== epoch) throw problem('CANCELLED', '另一条学校请求失败，已停止排队中的读取');
+      if (active < (degraded ? 1 : limit)) {
+        const gap = degraded ? 1000 - (now() - lastFinished) : 250 - (now() - lastStarted);
+        if (gap <= 0) { active++; lastStarted = now(); return; }
+        await sleep(gap);
+      } else await new Promise(resolve => waiting.push(resolve));
+    }
+  }
+  function release() {
+    active--;
+    lastFinished = now();
+    for (const resolve of waiting.splice(0)) resolve();
+  }
   const problem = (code, message, retryable = false, status = null) =>
     Object.assign(new Error(message), {code, retryable, status, school_read_error:true});
   async function sendXHR(url, headers) {
@@ -33,11 +55,10 @@ export function createSchoolReader(origin, io = {}) {
       throw problem('SOURCE', '请求来源不在已核实范围内');
     if (transport === 'xhr' && !makeXHR)
       throw problem('BROWSER_UNSUPPORTED', '当前浏览器缺少读取课表所需功能，请更新浏览器并重新打开教务首页');
-    const url = new URL(path, origin);
+    const url = new URL(path, origin), ticket = epoch;
     if (params) url.search = new URLSearchParams(params);
     for (let attempt = 1; attempt <= 3; attempt++) {
-      const gap = 1000 - (now() - lastFinished);
-      if (gap > 0) await sleep(gap);
+      await acquire(ticket);
       const began = now();
       observe({path, params, attempt, state:'start', transport});
       let failure, timeout = null;
@@ -85,12 +106,14 @@ export function createSchoolReader(origin, io = {}) {
           true);
       } finally {
         if (timeout !== null) cancelTimeout(timeout);
-        lastFinished = now();
+        if (failure) degraded = true;
+        release();
       }
       observe({path, params, attempt, state:'failure', transport, code:failure.code, status:failure.status,
         duration_ms:Math.max(0, now() - began)});
       if (!failure.retryable || attempt === 3) {
         failure.request = {path, params, attempt, transport};
+        if (!failure.retryable && ticket === epoch) epoch++;
         throw failure;
       }
       // The live timetable uses XMLHttpRequest. A successful fallback remains
