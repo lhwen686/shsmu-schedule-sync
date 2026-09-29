@@ -97,7 +97,7 @@ Edge 叫“收藏夹栏”，Chrome 叫“书签栏”，Firefox 叫“书签工
 | 浏览器 | 当前适配与验证范围 |
 | --- | --- |
 | Edge、Chrome、Firefox 的现代版本 | 已提供通用安装指引、基础功能检查和有超时保护的读取方式；本版学校实采均待验证。Chrome 的旧版真实采集记录不能替代本版验收 |
-| Mac Safari | 提供个人收藏栏安装、编辑地址、下载恢复指引及浏览器诊断识别；`.11` 已验证本机短/全范围及重复采集，`.14` 仍待新版真实学校采集。历史证据见 [Safari 验收](STUDENT_ACCEPTANCE.md#acceptance-safari)，使用见 [Mac 说明](MACOS.md#safari-课表按钮) |
+| Mac Safari | 提供个人收藏栏安装、编辑地址、下载恢复指引及浏览器诊断识别；`.11` 已验证本机短/全范围及重复采集，`.19` 仍待新版真实学校采集。历史证据见 [Safari 验收](STUDENT_ACCEPTANCE.md#acceptance-safari)，使用见 [Mac 说明](MACOS.md#safari-课表按钮) |
 | QQ、360、搜狗等独立浏览器 | 先看安装页检查结果，仍需按具体版本实测；仅凭同一内核不能保证成功 |
 | IE / IE 兼容模式、微信或 QQ 聊天内嵌网页 | 不在支持范围，请使用独立的现代浏览器普通窗口 |
 
