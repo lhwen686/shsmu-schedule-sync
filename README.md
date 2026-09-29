@@ -8,7 +8,7 @@
 
 **[点击下载 Windows + Mac 完整软件包](https://github.com/lhwen686/shsmu-schedule-sync/releases/download/v1.0.0-rc16/SHSMU-Schedule-Assistant-1.0.0-rc16-Windows-x64-Mac-arm64.zip)**。完整解压后，Windows 用户打开 `Windows` 文件夹中的 EXE，Mac 用户打开 `Mac` 文件夹中的 APP。单独平台包、使用说明和 SHA-256 校验值见 [下载页](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc16)。
 
-当前为 **1.0.0-rc16 候选版**：新增应用内更新（左下角“检查更新”，Windows 确认后自动下载替换并重启，Mac 下载后手动替换），刷新界面，课表书签 `.19` 回到逐条读取。更新软件后需手动替换旧书签；rc16 的学校、手机实机验收尚未进行。自动检查与实机验收分开记录，尚未完成的环节见 [学生版验收](STUDENT_ACCEPTANCE.md#acceptance-rc15)。原命令行工具继续可用，安装与维护命令见 [维护说明](MAINTENANCE.md)。
+当前为 **1.0.0-rc16 候选版**：新增应用内更新（左下角“检查更新”，Windows 确认后自动下载替换并重启，Mac 下载后手动替换），刷新界面，课表书签 `.19` 回到逐条读取。更新软件后需手动替换旧书签；rc16 的学校、手机实机验收尚未进行。自动检查与实机验收分开记录，尚未完成的环节见 [学生版验收](STUDENT_ACCEPTANCE.md#acceptance-rc16)。原命令行工具继续可用，安装与维护命令见 [维护说明](MAINTENANCE.md)。
 
 **更新软件后，请在实际采集的浏览器里手动替换一次书签**。两端生成的采集面板底部均应显示 `2026-09-29.19`；更新 APP/EXE 不会自动修改已保存的浏览器书签。已有旧 JSON 仍可直接处理，但无法补回当时没有记录的浏览器日志。升级前退出旧助手，保留原课表保存目录及全部历史。
 

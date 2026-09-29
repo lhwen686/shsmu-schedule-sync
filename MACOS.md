@@ -4,7 +4,7 @@
 
 当前候选版为 **1.0.0-rc16 · Mac 修订 10**，仅面向 Apple 芯片（M 系列）Mac。
 程序内置运行环境，使用 APP 不需要安装 Python。正式签名和 Apple 公证尚未完成。
-rc16 的学校与手机实机验收尚未进行；此前状态见 [rc15 验收](STUDENT_ACCEPTANCE.md#acceptance-rc15)。
+本次状态见 [rc16 验收](STUDENT_ACCEPTANCE.md#acceptance-rc16)；学校与手机实机验收尚未进行。
 助手左下角“检查更新”发现新版后，会把校验过的 ZIP 下载到“下载”文件夹，再按提示手动替换 APP。
 Windows 与 Mac 软件从同一份源码分别构建；旧修订包仍保留，不与新版混合合包。
 
