@@ -1,5 +1,18 @@
 # 学生版候选版本验收
 
+<a id="acceptance-rc19"></a>
+## rc19 双平台候选版（准备中，2026-09-30）
+
+对象：Windows x64 EXE 与 Apple 芯片 Mac APP；应用 `1.0.0-rc19`、Mac 修订 13、构建号 `19.0`、书签 `2026-09-29.19`。修复 Mac 检查更新（BUG-010）与设置页标签空白（BUG-011），见 [修复记录](VERIFICATION.md#mac-update-tls-tabs-20260930)。
+
+| 项目 | 本版状态 |
+| --- | --- |
+| 双平台完整检查、原生构建、冻结自检（Mac 隐藏 python.org 证书目录）、附件与 COS 回读 | NOT RUN：待发布工作流 |
+| Mac 冻结 APP 检查更新（无 python.org Python 的 Mac） | NOT RUN：待发布后以 rc19 实机检查 |
+| Mac 设置页标签切换（冻结 APP，Tk 8.6.16） | NOT RUN：待发布后实机检查 |
+| Windows rc18 → rc19 应用内更新 | NOT RUN |
+| 学校采集、手机导入、Mac 鼠标点击标签 | NOT RUN；本版未改采集与导出 |
+
 <a id="acceptance-rc18"></a>
 ## rc18 双平台候选版（2026-09-29）
 

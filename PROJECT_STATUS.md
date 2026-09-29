@@ -1,6 +1,11 @@
 # 项目状态
 
 <a id="baseline"></a>
+## rc19 双平台预发布（准备中，2026-09-30）
+
+发布分支 `codex/release-rc19` 基于合并 PR #17 后的 main。应用 `1.0.0-rc19`、Mac 修订 13 / 构建号 `19.0`，书签仍为 `2026-09-29.19`。
+包含 BUG-010（Mac 检查更新找不到根证书）与 BUG-011（Tk 8.6 设置页标签空白）修复；Mac 的 rc17、rc18 需手动下载本版一次。结果见 [rc19 验收](STUDENT_ACCEPTANCE.md#acceptance-rc19)。
+
 ## rc18 双平台预发布（2026-09-29）
 
 发布分支 `codex/release-rc18` 基于 `codex/release-rc17`。应用 `1.0.0-rc18`、Mac 修订 12 / 构建号 `18.0`，书签仍为 `2026-09-29.19`。
