@@ -616,6 +616,42 @@ class DesktopTests(unittest.TestCase):
         snapshot.write_text('{}', encoding='utf-8')
         self.assertIsNone(self.service.ready_apple_export())
 
+    def test_apple_readiness_reuses_verified_bytes_without_rebuilding(self):
+        import desktop_service
+        self.service.run(capture=write_capture(self.root))
+        ready = self.service.ready_apple_export()
+        self.assertTrue((self.root / 'local/desktop-apple.json').is_file())
+        # Page renders compare exact bytes to the verified hash instead of
+        # regenerating the calendar (which imports icalendar).
+        with patch('desktop_service.export_ics', side_effect=AssertionError('rebuilt')):
+            self.assertEqual(self.service.ready_apple_export(), ready)
+        ics = self.root / 'output/calendar.ics'
+        original = ics.read_bytes()
+        ics.write_bytes(original.replace(b'END:VCALENDAR', b'X-TAMPERED:1\r\nEND:VCALENDAR'))
+        self.assertIsNone(self.service.ready_apple_export())
+        ics.write_bytes(original)
+        self.assertEqual(self.service.ready_apple_export(), ready)
+        # A different app version or term never trusts the old verification.
+        with patch.object(desktop_service, 'APP_VERSION', 'other'), \
+                patch('desktop_service.export_ics', wraps=desktop_service.export_ics) as rebuilt:
+            self.assertEqual(self.service.ready_apple_export(), ready)
+            rebuilt.assert_called_once()
+        self.service.save_settings({**CONFIG, 'end_exclusive': '2027-01-19'})
+        self.assertIsNone(self.service.ready_apple_export())
+
+    def test_display_snapshot_is_reused_until_a_new_version_is_committed(self):
+        self.assertIsNone(self.service.current())
+        self.service.run(capture=write_capture(self.root))
+        first = self.service.current()
+        with patch('desktop_service.load_current', side_effect=AssertionError('reloaded')):
+            self.assertIs(self.service.current(), first)
+        changed = item()
+        changed['details'][0]['Teacher'] = '合成变更'
+        self.service.run(capture=write_capture(self.root, [changed], fetched=LATER))
+        second = self.service.current()
+        self.assertIsNot(second, first)
+        self.assertEqual(second, sync.load_current(self.root))
+
     def test_empty_capture_cannot_replace_a_ready_apple_file(self):
         self.service.run(capture=write_capture(self.root))
         ready = self.service.ready_apple_export()
@@ -1144,23 +1180,43 @@ class DesktopWidgetTests(unittest.TestCase):
             self.ui.show_settings()
             self.buttons()['学期、作息与文件夹详细设置'].invoke()
             self.window.update_idletasks()
-            self.assertTrue(any(isinstance(w, ttk.Notebook) for w in self.ui.content.winfo_children()))
+            self.assertTrue(any(isinstance(w, ttk.Notebook) for w in self.widgets()))
             self.ui.show_phone()
             self.window.update_idletasks()
-            tree = next(w for w in self.ui.content.winfo_children() if isinstance(w, ttk.Treeview))
+            tree = next(w for w in self.widgets() if isinstance(w, ttk.Treeview))
             self.assertEqual(len(tree.get_children()), 14)
             self.assertGreater(int(ttk.Style(self.window).lookup('Treeview', 'rowheight')),
                                self.ui.table_font.metrics('linespace'))
+
+    def test_opening_the_saved_home_page_does_not_import_icalendar(self):
+        import subprocess
+        config = student_term_config(CONFIG)
+        self.ui.service.save_settings(config)
+        self.ui.service.acknowledge_bookmark()
+        self.ui.service.run(capture=write_capture(Path(self.temp.name), config=config))
+        self.ui.service.ready_apple_export()  # Records the verified calendar bytes.
+        script = ('import sys, tkinter as tk\n'
+                  'from desktop import AssistantWindow\n'
+                  'from unittest.mock import patch\n'
+                  'from pathlib import Path\n'
+                  'window = tk.Tk(); window.withdraw()\n'
+                  'with patch("desktop.default_data_root", return_value=Path(sys.argv[1]) / "prefs"):\n'
+                  '    ui = AssistantWindow(window, Path(sys.argv[1]))\n'
+                  'print(ui.page, "icalendar" in sys.modules)\n'
+                  'ui.dispose()\n')
+        output = subprocess.run([sys.executable, '-B', '-c', script, self.temp.name], capture_output=True,
+                                text=True, timeout=120, cwd=Path(__file__).resolve().parent)
+        self.assertEqual(output.stdout.split(), ['home', 'False'], output.stderr)
 
     def test_switching_to_long_phone_guide_starts_at_the_top(self):
         self.ui.service.run(capture=write_capture(Path(self.temp.name)))
         self.ui.show_help()
         self.window.update_idletasks()
-        self.ui.canvas.configure(scrollregion=(0, 0, 800, 4000))
-        self.ui.canvas.yview_moveto(0.4)
+        self.ui.scroller.yview_moveto(0.4)
+        self.assertGreater(self.ui.scroller.offset, 0)
         self.ui.show_phone()
         self.window.update_idletasks()
-        self.assertEqual(self.ui.canvas.yview()[0], 0.0)
+        self.assertEqual(self.ui.scroller.yview()[0], 0.0)
 
     def widgets(self, ui=None):
         def walk(parent):
@@ -1202,7 +1258,7 @@ class DesktopWidgetTests(unittest.TestCase):
                     window.update_idletasks()
                     self.assertEqual('复制安装页地址' in self.buttons(reopened), not captured)
                     self.assertEqual('重新获取课表' in self.buttons(reopened), captured)
-                    self.assertEqual(reopened.canvas.yview()[0], 0.0)
+                    self.assertEqual(reopened.scroller.yview()[0], 0.0)
                     reopened.nav_buttons[0].invoke()
                     self.assertEqual('复制安装页地址' in self.buttons(reopened), not captured)
                 finally:
@@ -1419,11 +1475,10 @@ class DesktopWidgetTests(unittest.TestCase):
             self.ui._style()
             self.ui.show_help()
             self.window.update_idletasks()
-            self.ui.canvas.configure(scrollregion=(0, 0, 800, 4000))
-            self.ui.canvas.yview_moveto(0.4)
+            self.ui.scroller.yview_moveto(0.4)
             self.ui.show_apple_phone()
             self.window.update_idletasks()
-            self.assertEqual(self.ui.canvas.yview()[0], 0.0)
+            self.assertEqual(self.ui.scroller.yview()[0], 0.0)
             self.assertFalse(any(isinstance(widget, ttk.Treeview) for widget in self.widgets()))
             self.assertIn('我已导入并核对', self.buttons())
 

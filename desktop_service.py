@@ -161,6 +161,8 @@ class DesktopService:
         self._root_identity = None
         self.fallback_diagnostics_root = Path(diagnostics_root or default_data_root())
         self._bookmark_acknowledged = False
+        self._module_hashes = None
+        self._current = None
         self.diagnostics = DiagnosticRecorder(diagnostics_root or self.root)
 
     def require_available(self):
@@ -240,9 +242,35 @@ class DesktopService:
 
     def bookmark_fingerprint(self):
         # Changes only when the actual collector or semester changes, not the UI copy.
-        return content_hash({'term': term_key(self.config()), 'modules': [
-            hashlib.sha256((self.resources / name).read_bytes()).hexdigest()
-            for name in BROWSER_MODULES]})
+        # Bundled resources are read-only, so their hashes are computed once.
+        if self._module_hashes is None:
+            self._module_hashes = [hashlib.sha256((self.resources / name).read_bytes()).hexdigest()
+                                   for name in BROWSER_MODULES]
+        return content_hash({'term': term_key(self.config()), 'modules': self._module_hashes})
+
+    def current(self):
+        """load_current for display, reused while the committed version is unchanged.
+
+        Snapshots are written once per run; the tiny pointer names the run and its
+        hash, so pointer bytes plus the snapshot's stat identify the version.
+        Callers must treat the result as read-only.
+        """
+        pointer = self.root / 'data/current.json'
+        def identity():
+            try:
+                head = pointer.read_bytes()
+                run = json.loads(head)['run_id']
+                stat = (self.root / 'data/runs' / str(run) / 'schedule.json').stat()
+                return head, stat.st_mtime_ns, stat.st_size
+            except (OSError, ValueError, KeyError, TypeError):
+                return None
+        before = identity()
+        if before is not None and self._current is not None and self._current[0] == before:
+            return self._current[1]
+        value = load_current(self.root)
+        if before is not None and identity() == before:
+            self._current = before, value
+        return value
 
     def setup_step(self):
         state = self.state()
@@ -250,7 +278,7 @@ class DesktopService:
             return 1
         if state.get('confirmed_term') != term_key(self.config()):
             return 1
-        current = load_current(self.root)
+        current = self.current()
         bookmark_ack = state.get('bookmark_ack')
         if bookmark_ack != self.bookmark_fingerprint():
             # Direct JSON recovery can finish before a bookmark is acknowledged.
@@ -311,7 +339,7 @@ class DesktopService:
             with self._exclusive():
                 if not self.state().get('export_ready'):
                     return None
-                current = load_current(self.root)
+                current = self.current()
                 if current is None or term_key(current['scope']) != term_key(self.config()):
                     return None
                 pointer = json.loads((self.root / 'data/current.json').read_text(encoding='utf-8'))
@@ -329,7 +357,7 @@ class DesktopService:
 
     def _apple_export_unlocked(self, *, repair=False):
         """Caller holds exclusive_sync. ICS does not depend on WakeUp settings."""
-        current = load_current(self.root)
+        current = self.current()
         if current is None:
             raise DataError('没有已提交的完整课表，请先获取课表。')
         if term_key(current['scope']) != term_key(self.config()):
@@ -344,16 +372,49 @@ class DesktopService:
             if path.read_bytes() != expected:
                 raise DataError('苹果日历文件保存后校验失败，请重新生成导入文件。')
         days = [event['date'] for event in current['events']]
-        return {'event_count': len(days), 'course_start': min(days) if days else None,
-                'course_end': max(days) if days else None,
-                'capture_fetched_at': current.get('capture_fetched_at'),
-                'ics_sha256': hashlib.sha256(expected).hexdigest()}
+        report = {'event_count': len(days), 'course_start': min(days) if days else None,
+                  'course_end': max(days) if days else None,
+                  'capture_fetched_at': current.get('capture_fetched_at'),
+                  'ics_sha256': hashlib.sha256(expected).hexdigest()}
+        try:
+            # Lets later readiness checks compare exact bytes without rebuilding
+            # the calendar (and importing icalendar) on every page.
+            pointer = json.loads((self.root / 'data/current.json').read_text(encoding='utf-8'))
+            manifest = {'app_version': APP_VERSION, 'run_id': pointer['run_id'],
+                        'schedule_hash': pointer['schedule_hash'], 'term': term_key(current['scope']),
+                        'report': report}
+            path = self.root / 'local/desktop-apple.json'
+            if not path.is_file() or json.loads(path.read_text(encoding='utf-8')) != manifest:
+                atomic_write(path, json_bytes(manifest))
+        except (OSError, ValueError, KeyError, TypeError):
+            pass  # Only an optimisation; the full check still applies next time.
+        return report
+
+    def _apple_export_verified(self):
+        """Caller holds exclusive_sync. Report when calendar.ics still has the exact
+        bytes verified for this committed version, app version and term."""
+        try:
+            manifest = json.loads((self.root / 'local/desktop-apple.json').read_text(encoding='utf-8'))
+            # Still validates the committed snapshot (cached until it changes).
+            if self.current() is None:
+                return None
+            pointer = json.loads((self.root / 'data/current.json').read_text(encoding='utf-8'))
+            report = manifest['report']
+            if (manifest['app_version'] == APP_VERSION and manifest['run_id'] == pointer['run_id']
+                    and manifest['schedule_hash'] == pointer['schedule_hash']
+                    and manifest['term'] == term_key(self.config())
+                    and report['ics_sha256'] == hashlib.sha256(
+                        (self.root / 'output/calendar.ics').read_bytes()).hexdigest()):
+                return report
+        except (OSError, ValueError, KeyError, TypeError, DataError):
+            pass
+        return None
 
     def ready_apple_export(self):
         """Validate saved ICS before showing a file or accepting phone confirmation."""
         try:
             with self._exclusive():
-                return self._apple_export_unlocked()
+                return self._apple_export_verified() or self._apple_export_unlocked()
         except (OSError, ValueError, KeyError, TypeError, DataError) as error:
             self.diagnostics.exception(error, stage='apple_readiness_failed')
             return None

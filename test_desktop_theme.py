@@ -59,20 +59,60 @@ class MedicalThemeTests(unittest.TestCase):
         nav = self.ui.nav_buttons[0]
         self.assertLess(nav.winfo_reqheight(), self.ui.px(80))
 
-    def test_modern_scrollbar_has_no_arrows_and_tracks_the_view(self):
-        layout = str(self.window.tk.call('ttk::style','layout','Vertical.TScrollbar'))
-        self.assertNotIn('arrow', layout)
+    def test_slim_scrollbar_is_a_light_frame_and_tracks_the_view(self):
+        from desktop_theme import SlimScrollbar
         self.window.deiconify()
         self.window.geometry('900x500')
         self.window.update()
         bar = self.ui.scrollbar
+        # A ttk scrollbar cost ~10 ms per window-resize step on Windows.
+        self.assertIsInstance(bar, SlimScrollbar)
         self.assertLessEqual(bar.winfo_width(), self.ui.px(16))
         bar.set(.5, .75)
         self.window.update()
-        middle = bar.winfo_width()//2
-        self.assertTrue(bar.identify(middle, round(bar.winfo_height()*.6)).endswith('thumb'))
-        for fraction in (.2, .9):
-            self.assertTrue(bar.identify(middle, round(bar.winfo_height()*fraction)).endswith('trough'))
+        top, length = bar.thumb_box()
+        height = bar.winfo_height()
+        self.assertLess(top, height*.6)
+        self.assertGreater(top+length, height*.6)
+        self.assertGreater(top, height*.2)
+        self.assertLess(top+length, height*.9)
+        self.assertEqual(bar.thumb.winfo_y(), top)
+        bar.set(0, 1)
+        self.window.update()
+        self.assertIsNone(bar.thumb_box())
+        self.assertFalse(bar.thumb.winfo_ismapped())
+
+    def test_dragging_the_window_edge_keeps_the_column_width_between_breakpoints(self):
+        scroller = self.ui.scroller
+        widest = scroller.max_width
+        for available in (widest, widest+self.ui.px(10), widest+self.ui.px(300)):
+            self.assertEqual(scroller.column_width(available), widest)
+        narrower = {scroller.column_width(widest-self.ui.px(n)) for n in range(1, 50, 5)}
+        self.assertLessEqual(len(narrower), 2)
+        self.assertGreaterEqual(min(narrower), scroller.min_width)
+        self.saved()
+        self.window.deiconify()
+        self.window.geometry(f'{self.ui.px(1080)}x{self.ui.px(687)}')
+        self.ui.show_home()
+        self.window.update()
+        labels = [w for w in walk_widgets(self.ui.content) if isinstance(w, tk.Label) and str(w.cget('text'))]
+        before = [(w.winfo_width(), str(w.cget('wraplength'))) for w in labels]
+        for step in range(1, 6):
+            self.window.geometry(f'{self.ui.px(1080)+step*self.ui.px(10)}x{self.ui.px(687)}')
+            self.window.update()
+        self.assertEqual([(w.winfo_width(), str(w.cget('wraplength'))) for w in labels], before)
+
+    def test_cards_round_their_corners_into_the_surrounding_background(self):
+        from desktop_theme import Card, PAGE, SURFACE
+        self.saved()
+        self.ui.show_home()
+        self.window.update_idletasks()
+        cards = [w for w in walk_widgets(self.ui.content) if isinstance(w, Card)]
+        self.assertGreaterEqual(len(cards), 2)
+        for card in cards:
+            self.assertEqual(str(card.cget('background')), PAGE)
+            self.assertEqual(str(card.body.cget('background')), SURFACE)
+            self.assertEqual(len(card.corner_items), 4)
 
     def test_scrolling_does_not_rebuild_the_scroll_region(self):
         self.saved()
@@ -80,12 +120,12 @@ class MedicalThemeTests(unittest.TestCase):
         self.window.geometry('1000x420')
         self.ui.show_files()
         self.window.update()
-        with patch.object(self.ui, '_wrap_labels') as rewrap:
+        with patch.object(self.ui, '_wrap_label') as rewrap:
             for _ in range(3):
-                self.ui.canvas.yview_scroll(1, 'units')
+                self.ui.scroller.yview_scroll(1, 'units')
                 self.window.update()
             rewrap.assert_not_called()
-        self.assertGreater(self.ui.canvas.canvasy(0), 0)
+        self.assertGreater(self.ui.scroller.offset, 0)
 
     @unittest.skipUnless(sys.platform == 'darwin', 'Aqua point scale')
     def test_mac_fonts_are_not_shrunk_below_design_size(self):
@@ -95,9 +135,11 @@ class MedicalThemeTests(unittest.TestCase):
         self.assertEqual(self.ui.theme.font(14)[1], -14)
 
     def test_platform_sidebar_palette_keeps_light_controls_readable(self):
-        expected = '#f0f3f0' if sys.platform == 'darwin' else '#f3f6f3'
+        from desktop_theme import SIDEBAR
+        expected = '#edf2ee' if sys.platform == 'darwin' else '#eef3ef'
+        self.assertEqual(SIDEBAR, expected)
+        self.assertEqual(str(self.ui.sidebar.cget('background')), expected)
         style = ttk.Style(self.window)
-        self.assertEqual(str(style.lookup('Sidebar.TFrame', 'background')), expected)
         self.assertEqual(str(style.lookup('Primary.TButton', 'foreground')), '#ffffff')
         self.assertEqual(str(style.lookup('TEntry', 'fieldbackground')), '#ffffff')
 
@@ -106,11 +148,11 @@ class MedicalThemeTests(unittest.TestCase):
         for control in (ttk.Treeview(self.ui.content), tk.Listbox(self.ui.content),
                         tk.Text(self.ui.content), ttk.Combobox(self.ui.content)):
             with self.subTest(control=control.winfo_class()), \
-                    patch.object(self.ui.canvas, 'yview_scroll') as scroll:
+                    patch.object(self.ui.scroller, 'yview_scroll') as scroll:
                 self.ui._wheel(SimpleNamespace(widget=control, delta=-120))
                 scroll.assert_not_called()
             control.destroy()
-        with patch.object(self.ui.canvas, 'yview_scroll') as scroll:
+        with patch.object(self.ui.scroller, 'yview_scroll') as scroll:
             self.ui._wheel(SimpleNamespace(widget=self.ui.content, delta=-120))
             scroll.assert_called_once()
 
@@ -175,9 +217,9 @@ class MedicalThemeTests(unittest.TestCase):
                 self.window.geometry(f'{self.ui.px(width)}x{self.ui.px(687)}')
                 self.ui.show_result(result)
                 self.window.update()
-                cards=[w.master for w in self.checks()]
+                cards=[w.master.master for w in self.checks()]
                 self.assertEqual(cards[0].master.columns,columns,
-                    (self.window.winfo_width(),self.ui.canvas.winfo_width(),self.ui.content.winfo_width(),cards[0].master.winfo_width(),self.ui.theme.metrics.scale))
+                    (self.window.winfo_width(),self.ui.scroller.viewport.winfo_width(),self.ui.content.winfo_width(),cards[0].master.winfo_width(),self.ui.theme.metrics.scale))
                 self.assertGreater(cards[0].winfo_width(),self.ui.px(230))
                 self.assertTrue(all(w.winfo_ismapped() for w in self.checks()))
                 if columns==2:
@@ -188,9 +230,10 @@ class MedicalThemeTests(unittest.TestCase):
                     target=self.button('查看导入步骤')
                     target.focus_force()
                     self.window.update()
-                    self.assertGreaterEqual(target.winfo_rooty(),self.ui.canvas.winfo_rooty())
+                    viewport=self.ui.scroller.viewport
+                    self.assertGreaterEqual(target.winfo_rooty(),viewport.winfo_rooty())
                     self.assertLessEqual(target.winfo_rooty()+target.winfo_height(),
-                        self.ui.canvas.winfo_rooty()+self.ui.canvas.winfo_height())
+                        viewport.winfo_rooty()+viewport.winfo_height())
 
     def test_settings_overview_reaches_all_preserved_editors(self):
         self.ui.show_settings()
@@ -284,7 +327,7 @@ class MedicalThemeTests(unittest.TestCase):
     def test_total_export_failure_does_not_claim_files_generated(self):
         result=self.saved()
         self.ui.show_result({**result,'report':None,'apple_report':None})
-        labels=[str(w.cget('text')) for w in walk_widgets(self.ui.content) if isinstance(w,ttk.Label)]
+        labels=[str(w.cget('text')) for w in walk_widgets(self.ui.content) if isinstance(w,(tk.Label,ttk.Label))]
         self.assertFalse(any('电脑文件已生成' in text for text in labels))
         self.assertTrue(all(w.instate(['disabled']) for w in self.checks()))
 

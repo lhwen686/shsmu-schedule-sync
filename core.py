@@ -11,7 +11,6 @@ from collections import Counter
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
-from icalendar import Calendar, Event, Timezone
 
 TZ = ZoneInfo("Asia/Shanghai")
 NAMESPACE = uuid.UUID("5872874d-d0c4-4d4d-86f4-e8a228597678")
@@ -429,6 +428,10 @@ def reconcile(events, previous, scope, now):
 
 
 def export_ics(snapshot):
+    # Deferred: icalendar costs about a second at desktop start-up and is
+    # needed only when an ICS file is actually generated.
+    from icalendar import Calendar, Event, Timezone
+
     calendar = Calendar()
     calendar.add("prodid", "-//SHSMU Schedule Sync//CN")
     calendar.add("version", "2.0")
