@@ -7,7 +7,7 @@ import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, PropertyMock, patch
 
 import desktop
 import diagnostics
@@ -206,7 +206,9 @@ class MacRecoveryRegressionTests(unittest.TestCase):
         ui = self.open_ui({'data_root': str(self.root)})
         self.assertTrue(self.window.tk.call('info', 'commands', '::tk::mac::Quit'))
         ui.running = True
-        with patch.object(ui.job, 'cancel') as cancel, patch.object(ui, 'dispose') as dispose:
+        # close() now drops a stale running flag when no worker is alive; keep one "alive".
+        with patch.object(type(ui.job), 'busy', new_callable=PropertyMock, return_value=True), \
+                patch.object(ui.job, 'cancel') as cancel, patch.object(ui, 'dispose') as dispose:
             self.window.tk.call('::tk::mac::Quit')
             self.window.tk.call('::tk::mac::Quit')
             cancel.assert_called_once()
