@@ -29,12 +29,14 @@ MAX_INPUT = 20_000_000
 MAX_EVENTS = 2000
 MAX_RECORD = 2 * 1024 * 1024
 RETENTION_SECONDS = 30 * 86400
+PERSIST_INTERVAL = 1.0
+PRUNE_INTERVAL = 3600
 SAFE_TIME = re.compile(r'(?:\d{4}-\d{2}-\d{2}(?:(?:T| )\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})?)?|\d{2}:\d{2}(?::\d{2})?)')
 ORIGIN = 'https://jwstu.shsmu.edu.cn'
 ENDPOINTS = {'/Home', '/Home/GetCurriculumTable', '/Home/GetCalendarTable'}
 OWN_FILE = re.compile(r'[a-f0-9]{32}\.(?:record|material)\.(?:json|tmp)')
 SECRET = re.compile(r'password|passwd|cookie|token|authorization|secret|session|csrf|ticket|student|account|tel|phone|mobile|email|worknumber|videolink', re.I)
-CONTAINERS = set(('config scope responses response params items event details events cancelled_events '
+CONTAINERS = set(('config scope responses response params items event details events cancelled_events retained_events '
     'coverage source_ids combined_class input previous committed bundle slots timetable '
     'failure request request_log diagnostics current_response checks').split())
 IDENTIFIERS = set(('ID DetailID TeachingCalendarID CurriculumID CSID XXKMID ScheduleManagerID HeBanID '
@@ -256,6 +258,17 @@ class DiagnosticRecorder:
         self.redactor = Redactor()
         self.storage_warning = False
         self.started = time.monotonic()
+        self._reset_storage_state()
+
+    def _reset_storage_state(self):
+        # Routine events are written at most once per PERSIST_INTERVAL; the
+        # retention scan runs only when the estimated total could exceed the
+        # cap or the retention clock is due. Both scaled with every event.
+        self._record_bytes = 0
+        self._own_bytes = {}
+        self._others_bytes = None
+        self._last_persist = None
+        self._last_prune = None
 
     def begin(self, kind):
         try:
@@ -263,6 +276,7 @@ class DiagnosticRecorder:
                 self.redactor = Redactor()
                 self.material = {}
                 self.started = time.monotonic()
+                self._reset_storage_state()
                 self.record = {'format': 'shsmu-support-v1', 'schema_version': 1,
                     'operation_id': uuid.uuid4().hex, 'app_version': APP_VERSION,
                     'kind': kind, 'started_at': utc_now(), 'status': 'running',
@@ -270,6 +284,7 @@ class DiagnosticRecorder:
                                     'os_version': platform.version(), 'architecture': platform.machine(),
                                     'python': platform.python_version(), 'frozen': bool(getattr(__import__('sys'), 'frozen', False))},
                     'events': [], 'limitations': []}
+                self._record_bytes = len(json.dumps(self.record, ensure_ascii=False).encode('utf-8'))
                 self.prune()
                 self.event('operation_started')
         except Exception:
@@ -288,6 +303,7 @@ class DiagnosticRecorder:
                 handle.write(data)
                 handle.flush()
             os.replace(temporary, destination)
+            self._own_bytes[suffix] = len(data)
         finally:
             try:
                 if temporary.is_file():
@@ -295,18 +311,34 @@ class DiagnosticRecorder:
             except OSError:
                 pass
 
-    def _persist(self, material=False):
+    def _persist(self, material=False, *, force=True):
         try:
+            now = time.monotonic()
+            over_cap = (self._others_bytes is not None
+                        and self._others_bytes + sum(self._own_bytes.values()) > self.max_disk)
+            if (not force and not material and not over_cap and self._last_persist is not None
+                    and now - self._last_persist < PERSIST_INTERVAL):
+                return
             if material:
                 self._write('.material.json', self.material)
             self._write('.record.json', self.record)
-            self.prune()
+            self._last_persist = now
+            if (self._others_bytes is None or self._last_prune is None
+                    or now - self._last_prune > PRUNE_INTERVAL
+                    or self._others_bytes + sum(self._own_bytes.values()) > self.max_disk):
+                self.prune()
         except Exception:
             self.storage_warning = True
             if self.record and 'WRITE_FAILED' not in self.record['limitations']:
                 self.record['limitations'].append('WRITE_FAILED')
 
+    @staticmethod
+    def _urgent(name):
+        return (name in ('operation_started', 'operation_finished', 'exception', 'cancel_requested', 'window_closed')
+                or 'failed' in name)
+
     def event(self, name, **context):
+        """Append one event; returns True only when this event was recorded."""
         try:
             with self.lock:
                 if self.record is None:
@@ -314,26 +346,32 @@ class DiagnosticRecorder:
                 if len(self.record['events']) >= MAX_EVENTS:
                     if 'EVENT_LIMIT' not in self.record['limitations']:
                         self.record['limitations'].append('EVENT_LIMIT')
-                    self._persist()
+                    self._persist(force=False)
                     if name == 'operation_finished' or 'failed' in name or name == 'exception':
-                        self.record['events'].pop()
+                        removed = self.record['events'].pop()
+                        self._record_bytes -= len(json.dumps(removed, ensure_ascii=False).encode('utf-8')) + 2
                     else:
-                        return
+                        return False
                 # Names originate in program call sites, never in school responses.
                 cleaned = self.redactor.clean(context)
                 if len(json.dumps(cleaned, ensure_ascii=False)) > 64000:
                     cleaned = {'code': 'EVENT_LIMIT', 'truncated': True}
-                if len(json.dumps(self.record, ensure_ascii=False).encode('utf-8')) > MAX_RECORD - 256000:
+                entry = {'recorded_at': utc_now(), 'event': name,
+                         'elapsed_ms': round((time.monotonic() - self.started) * 1000),
+                         'context': cleaned}
+                size = len(json.dumps(entry, ensure_ascii=False).encode('utf-8')) + 2
+                if self._record_bytes + size > MAX_RECORD - 256000:
                     if 'EVENT_LIMIT' not in self.record['limitations']:
                         self.record['limitations'].append('EVENT_LIMIT')
-                    self._persist()
-                    return
-                self.record['events'].append({'recorded_at': utc_now(), 'event': name,
-                    'elapsed_ms': round((time.monotonic() - self.started) * 1000),
-                    'context': cleaned})
-                self._persist()
+                    self._persist(force=False)
+                    return False
+                self.record['events'].append(entry)
+                self._record_bytes += size
+                self._persist(force=self._urgent(name))
+                return True
         except Exception:
             self.storage_warning = True
+            return False
 
     def exception(self, error, *, stage=None):
         try:
@@ -348,11 +386,15 @@ class DiagnosticRecorder:
             if frames and code == 'VALIDATION':
                 code = LOCATIONS.get((frames[-1]['file'], frames[-1]['function']), code)
             with self.lock:
-                self.event(stage or 'exception', error_code=code, errno=getattr(error, 'errno', None),
-                           winerror=getattr(error, 'winerror', None), index=getattr(error, 'diagnostic_index', None),
-                           checks=getattr(error, 'diagnostic_checks', None))
-                self.record['events'][-1]['exception'] = {'type': type(error).__name__,
-                    'code': code, 'frames': frames[-24:]}
+                recorded = self.event(stage or 'exception', error_code=code, errno=getattr(error, 'errno', None),
+                                      winerror=getattr(error, 'winerror', None), index=getattr(error, 'diagnostic_index', None),
+                                      checks=getattr(error, 'diagnostic_checks', None))
+                # Never attach this exception to an unrelated earlier event.
+                if recorded:
+                    self.record['events'][-1]['exception'] = {'type': type(error).__name__,
+                        'code': code, 'frames': frames[-24:]}
+                elif 'EVENT_LIMIT' not in self.record['limitations']:
+                    self.record['limitations'].append('EVENT_LIMIT')
                 self._persist()
         except Exception:
             self.storage_warning = True
@@ -381,7 +423,6 @@ class DiagnosticRecorder:
                 if self.redactor.omitted and 'OMITTED_FIELDS' not in self.record['limitations']:
                     self.record['limitations'].append('OMITTED_FIELDS')
                 self._persist(material=True)
-                self.prune()
         except Exception:
             self.storage_warning = True
 
@@ -459,24 +500,38 @@ class DiagnosticRecorder:
         try:
             if not self.directory.is_dir():
                 return []
+            # Regular, non-link direct children only. iterdir() never leaves this
+            # directory, so the former per-file resolve() (which dominated each
+            # scan) added no protection beyond the symlink check.
             return [p for p in self.directory.iterdir() if OWN_FILE.fullmatch(p.name)
-                    and p.is_file() and not p.is_symlink() and p.resolve().parent == self.directory.resolve()]
+                    and not p.is_symlink() and p.is_file()]
         except OSError:
             self.storage_warning = True
             return []
 
     def prune(self):
         try:
-            owned = sorted(self._owned(), key=lambda p: p.stat().st_mtime)
-            total = sum(p.stat().st_size for p in owned)
+            stats = {}
+            for path in self._owned():
+                try:
+                    stats[path] = path.stat()
+                except FileNotFoundError:
+                    continue
+            owned = sorted(stats, key=lambda p: stats[p].st_mtime)
+            total = sum(stat.st_size for stat in stats.values())
             current = self.record['operation_id'] if self.record else ''
+            others = 0
             for path in owned:
+                stat = stats[path]
                 if current and path.name.startswith(current):
                     continue
-                stat = path.stat()
                 if total > self.max_disk or time.time() - stat.st_mtime > RETENTION_SECONDS:
                     total -= stat.st_size
                     path.unlink()  # One verified, logger-owned file at a time.
+                else:
+                    others += stat.st_size
+            self._others_bytes = others
+            self._last_prune = time.monotonic()
         except OSError:
             self.storage_warning = True
 

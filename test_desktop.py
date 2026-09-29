@@ -616,6 +616,42 @@ class DesktopTests(unittest.TestCase):
         snapshot.write_text('{}', encoding='utf-8')
         self.assertIsNone(self.service.ready_apple_export())
 
+    def test_apple_readiness_reuses_verified_bytes_without_rebuilding(self):
+        import desktop_service
+        self.service.run(capture=write_capture(self.root))
+        ready = self.service.ready_apple_export()
+        self.assertTrue((self.root / 'local/desktop-apple.json').is_file())
+        # Page renders compare exact bytes to the verified hash instead of
+        # regenerating the calendar (which imports icalendar).
+        with patch('desktop_service.export_ics', side_effect=AssertionError('rebuilt')):
+            self.assertEqual(self.service.ready_apple_export(), ready)
+        ics = self.root / 'output/calendar.ics'
+        original = ics.read_bytes()
+        ics.write_bytes(original.replace(b'END:VCALENDAR', b'X-TAMPERED:1\r\nEND:VCALENDAR'))
+        self.assertIsNone(self.service.ready_apple_export())
+        ics.write_bytes(original)
+        self.assertEqual(self.service.ready_apple_export(), ready)
+        # A different app version or term never trusts the old verification.
+        with patch.object(desktop_service, 'APP_VERSION', 'other'), \
+                patch('desktop_service.export_ics', wraps=desktop_service.export_ics) as rebuilt:
+            self.assertEqual(self.service.ready_apple_export(), ready)
+            rebuilt.assert_called_once()
+        self.service.save_settings({**CONFIG, 'end_exclusive': '2027-01-19'})
+        self.assertIsNone(self.service.ready_apple_export())
+
+    def test_display_snapshot_is_reused_until_a_new_version_is_committed(self):
+        self.assertIsNone(self.service.current())
+        self.service.run(capture=write_capture(self.root))
+        first = self.service.current()
+        with patch('desktop_service.load_current', side_effect=AssertionError('reloaded')):
+            self.assertIs(self.service.current(), first)
+        changed = item()
+        changed['details'][0]['Teacher'] = '合成变更'
+        self.service.run(capture=write_capture(self.root, [changed], fetched=LATER))
+        second = self.service.current()
+        self.assertIsNot(second, first)
+        self.assertEqual(second, sync.load_current(self.root))
+
     def test_empty_capture_cannot_replace_a_ready_apple_file(self):
         self.service.run(capture=write_capture(self.root))
         ready = self.service.ready_apple_export()
@@ -758,8 +794,108 @@ class DesktopTests(unittest.TestCase):
         self.assertNotIn('已保存', unknown.next_step)
         for apple in (False, True):
             issue = explain_error(PermissionError('synthetic'), exporting=True, apple=apple)
-            self.assertEqual(issue.title, '文件操作未完成')
+            self.assertEqual(issue.title, '文件正被其他程序使用或无法写入')
             self.assertNotIn('已保存', issue.next_step)
+
+    def test_error_copy_does_not_misdirect_login_saved_record_or_open_file_failures(self):
+        from desktop_service import explain_error
+        empty = explain_error(DataError('整个学期返回空课表；为避免登录或日期异常造成批量删除，已保留上次版本。'))
+        self.assertEqual(empty.title, '没有读取到任何课程')
+        self.assertIn('登录', empty.next_step)
+        branch = explain_error(DataError('教务新增了非空 List2 数据分支，需要先核实字段。'))
+        self.assertEqual(branch.title, '学校返回了尚未支持的数据')
+        try:
+            json.loads('{broken')
+        except ValueError as error:
+            saved = explain_error(error)
+        self.assertEqual(saved.title, '已保存的课表记录无法读取')
+        self.assertNotIn('下载', saved.next_step)
+        in_use = PermissionError(13, 'in use')
+        for issue in (explain_error(in_use), explain_error(in_use, exporting=True)):
+            self.assertIn('其他程序', issue.title)
+            self.assertIn('Excel', issue.next_step)
+        self.assertEqual(explain_error(OSError(28, 'No space')).title, '文件操作未完成')
+
+    def test_narrowed_same_semester_range_keeps_uid_revision_and_history(self):
+        one = item()
+        october = item(2)
+        october['event'].update(Start='2026-10-05T08:00:00', End='2026-10-05T09:30:00')
+        october['details'][0].update(ClassTime='2026-10-05T00:00:00', WeekNum=5)
+        self.service.run(capture=write_capture(self.root, [one, october]))
+        october['details'][0]['Teacher'] = '已更正教师'
+        self.service.run(capture=write_capture(self.root, [one, october], fetched=LATER))
+        before = sync.load_current(self.root)
+        by_date = {e['date']: e for e in before['events']}
+        self.assertEqual(by_date['2026-10-05']['sequence'], 1)
+        narrowed = {**self.service.config(), 'start': '2026-10-01', 'range_mode': 'custom'}
+        self.service.save_settings(narrowed)
+        result = self.service.run(capture=write_capture(self.root, [october], config=term_key(narrowed),
+                                                       fetched='2026-09-06T13:00:00Z'))
+        self.assertIsNone(result['issue'])
+        self.assertEqual(result['imported'].diff['summary'], {'ADDED': 0, 'REMOVED': 0, 'CHANGED': 0})
+        after = sync.load_current(self.root)
+        kept = after['events'][0]
+        for field in ('uid', 'sequence', 'created_at', 'modified_at', 'identity_aliases'):
+            self.assertEqual(kept[field], by_date['2026-10-05'][field])
+        self.assertEqual([e['uid'] for e in after['retained_events']], [by_date['2026-09-07']['uid']])
+        calendar = (self.root / 'output/calendar.ics').read_bytes()
+        self.assertNotIn(by_date['2026-09-07']['uid'].encode(), calendar)  # Not re-read: neither exported nor cancelled.
+        widened = {**narrowed, 'start': CONFIG['start']}
+        self.service.save_settings(widened)
+        restored = self.service.run(capture=write_capture(self.root, [one, october], config=term_key(widened),
+                                                         fetched='2026-09-06T14:00:00Z'))
+        self.assertEqual(restored['imported'].diff['summary'], {'ADDED': 0, 'REMOVED': 0, 'CHANGED': 0})
+        final = {e['uid']: e for e in sync.load_current(self.root)['events']}
+        first = by_date['2026-09-07']
+        self.assertEqual(final[first['uid']]['created_at'], first['created_at'])
+        self.assertEqual(final[first['uid']]['sequence'], first['sequence'])
+        self.assertNotIn('retained_events', sync.load_current(self.root))
+
+    def test_saved_future_capture_time_does_not_block_a_later_capture(self):
+        self.service.run(capture=write_capture(self.root, fetched='2030-01-01T00:00:00Z'))
+        changed = item()
+        changed['details'][0]['Teacher'] = '新教师'
+        result = self.service.run(capture=write_capture(self.root, [changed], fetched=LATER))
+        self.assertEqual(result['imported'].diff['summary']['CHANGED'], 1)
+        self.assertTrue(any('电脑时间' in w for w in result['imported'].diff['warnings']))
+        with self.assertRaisesRegex(DataError, '更旧'):
+            self.service.run(capture=write_capture(self.root, fetched=NOW))
+
+    def test_generated_bookmark_fits_firefox_and_contains_every_module(self):
+        import html
+        import re
+        from urllib.parse import unquote
+        from prepare import BOOKMARK_LIMIT, compact_script
+        page = self.service.bookmark_path.read_text(encoding='utf-8')
+        bookmark = html.unescape(re.search(r'<a class="bookmark" href="([^"]+)"', page)[1])
+        self.assertLessEqual(len(bookmark), BOOKMARK_LIMIT)
+        self.assertLess(BOOKMARK_LIMIT, 65536)  # Firefox Places URL limit.
+        script = unquote(bookmark.removeprefix('javascript:'))
+        self.assertTrue(script.isascii())
+        for name in BROWSER_MODULES:
+            source = (self.service.resources / name).read_text(encoding='utf-8').replace('export ', '', 1)
+            self.assertIn(compact_script(source), script)
+        # The installer's own capability check still embeds the readable module.
+        self.assertIn('function browserCapabilities', page)
+
+    def test_failed_output_replace_leaves_no_temporary_file(self):
+        target = self.root / 'output/probe.txt'
+        with patch('sync.os.replace', side_effect=PermissionError(13, 'in use')):
+            with self.assertRaises(PermissionError):
+                sync.atomic_write(target, b'new')
+        self.assertEqual(list(target.parent.glob('probe.txt.*.tmp')), [])
+
+    def test_file_dialog_time_does_not_expire_the_waiter(self):
+        downloads = self.root / 'downloads'
+        downloads.mkdir()
+        chosen, paused = write_capture(self.root), threading.Event()
+        paused.set()
+        timer = threading.Timer(1.2, paused.clear)  # The dialog stays open past the 0.5 s wait.
+        timer.start()
+        self.addCleanup(timer.cancel)
+        result = sync.wait_capture(downloads, timeout=0.5, progress=lambda text: None,
+                                   choose=lambda: None if paused.is_set() else chosen, paused=paused)
+        self.assertEqual(result, chosen)
 
     def test_reveal_only_selects_a_file_and_missing_log_uses_generic_issue(self):
         from desktop import reveal_file
@@ -931,6 +1067,25 @@ class DesktopWidgetTests(unittest.TestCase):
             raise
         self.assertFalse(self.callback_errors, f'Tk callback errors: {self.callback_errors!r}')
 
+    def test_page_render_failure_keeps_queue_running_and_window_closable(self):
+        failures = []
+        def broken(result, **options):
+            failures.append(result)
+            raise RuntimeError('synthetic render failure')
+        self.ui.show_result = broken
+        self.ui.running = True
+        self.ui.job.events.put(('result', {'report': None, 'apple_report': None, 'imported': None,
+                                           'issue': None, 'apple_issue': None}))
+        self.ui.job.events.put(('finished', None))
+        self.wait_tk(lambda: not self.ui.running and self.ui.job.events.empty())
+        self.assertEqual(len(failures), 1)
+        self.assertIn('导出排错日志', self.buttons())  # The failure is shown, not swallowed.
+        self.ui.job.events.put(('waiting', '已准备好接收'))
+        self.wait_tk(lambda: self.ui.job.events.empty())  # Later events are still consumed.
+        self.ui.running = True  # A lost 'finished' must not make the window unclosable.
+        self.ui.close()
+        self.assertTrue(self.ui.disposed)
+
     def test_diagnostic_dialog_exports_selected_record_and_cancel_is_harmless(self):
         import tkinter as tk
         from tkinter import ttk
@@ -1025,23 +1180,43 @@ class DesktopWidgetTests(unittest.TestCase):
             self.ui.show_settings()
             self.buttons()['学期、作息与文件夹详细设置'].invoke()
             self.window.update_idletasks()
-            self.assertTrue(any(isinstance(w, ttk.Notebook) for w in self.ui.content.winfo_children()))
+            self.assertTrue(any(isinstance(w, ttk.Notebook) for w in self.widgets()))
             self.ui.show_phone()
             self.window.update_idletasks()
-            tree = next(w for w in self.ui.content.winfo_children() if isinstance(w, ttk.Treeview))
+            tree = next(w for w in self.widgets() if isinstance(w, ttk.Treeview))
             self.assertEqual(len(tree.get_children()), 14)
             self.assertGreater(int(ttk.Style(self.window).lookup('Treeview', 'rowheight')),
                                self.ui.table_font.metrics('linespace'))
+
+    def test_opening_the_saved_home_page_does_not_import_icalendar(self):
+        import subprocess
+        config = student_term_config(CONFIG)
+        self.ui.service.save_settings(config)
+        self.ui.service.acknowledge_bookmark()
+        self.ui.service.run(capture=write_capture(Path(self.temp.name), config=config))
+        self.ui.service.ready_apple_export()  # Records the verified calendar bytes.
+        script = ('import sys, tkinter as tk\n'
+                  'from desktop import AssistantWindow\n'
+                  'from unittest.mock import patch\n'
+                  'from pathlib import Path\n'
+                  'window = tk.Tk(); window.withdraw()\n'
+                  'with patch("desktop.default_data_root", return_value=Path(sys.argv[1]) / "prefs"):\n'
+                  '    ui = AssistantWindow(window, Path(sys.argv[1]))\n'
+                  'print(ui.page, "icalendar" in sys.modules)\n'
+                  'ui.dispose()\n')
+        output = subprocess.run([sys.executable, '-B', '-c', script, self.temp.name], capture_output=True,
+                                text=True, timeout=120, cwd=Path(__file__).resolve().parent)
+        self.assertEqual(output.stdout.split(), ['home', 'False'], output.stderr)
 
     def test_switching_to_long_phone_guide_starts_at_the_top(self):
         self.ui.service.run(capture=write_capture(Path(self.temp.name)))
         self.ui.show_help()
         self.window.update_idletasks()
-        self.ui.canvas.configure(scrollregion=(0, 0, 800, 4000))
-        self.ui.canvas.yview_moveto(0.4)
+        self.ui.scroller.yview_moveto(0.4)
+        self.assertGreater(self.ui.scroller.offset, 0)
         self.ui.show_phone()
         self.window.update_idletasks()
-        self.assertEqual(self.ui.canvas.yview()[0], 0.0)
+        self.assertEqual(self.ui.scroller.yview()[0], 0.0)
 
     def widgets(self, ui=None):
         def walk(parent):
@@ -1083,7 +1258,7 @@ class DesktopWidgetTests(unittest.TestCase):
                     window.update_idletasks()
                     self.assertEqual('复制安装页地址' in self.buttons(reopened), not captured)
                     self.assertEqual('重新获取课表' in self.buttons(reopened), captured)
-                    self.assertEqual(reopened.canvas.yview()[0], 0.0)
+                    self.assertEqual(reopened.scroller.yview()[0], 0.0)
                     reopened.nav_buttons[0].invoke()
                     self.assertEqual('复制安装页地址' in self.buttons(reopened), not captured)
                 finally:
@@ -1300,11 +1475,10 @@ class DesktopWidgetTests(unittest.TestCase):
             self.ui._style()
             self.ui.show_help()
             self.window.update_idletasks()
-            self.ui.canvas.configure(scrollregion=(0, 0, 800, 4000))
-            self.ui.canvas.yview_moveto(0.4)
+            self.ui.scroller.yview_moveto(0.4)
             self.ui.show_apple_phone()
             self.window.update_idletasks()
-            self.assertEqual(self.ui.canvas.yview()[0], 0.0)
+            self.assertEqual(self.ui.scroller.yview()[0], 0.0)
             self.assertFalse(any(isinstance(widget, ttk.Treeview) for widget in self.widgets()))
             self.assertIn('我已导入并核对', self.buttons())
 

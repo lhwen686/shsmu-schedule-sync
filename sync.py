@@ -20,6 +20,7 @@ from diagnostics import notify
 from webcal import UploadError, publish_current
 
 ROOT = Path(__file__).resolve().parent
+FUTURE_CAPTURE_TOLERANCE = timedelta(minutes=10)
 
 
 class SyncCancelled(Exception):
@@ -167,11 +168,20 @@ def fetch_complete(source, config, run_dir, progress=print, cancel=None, observe
 def atomic_write(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
-    with temp.open("xb") as handle:
-        handle.write(value)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temp, path)
+    try:
+        with temp.open("xb") as handle:
+            handle.write(value)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, path)
+    finally:
+        # A target held open by another program (Windows) must not leave
+        # one orphaned temporary file per attempt beside the output.
+        try:
+            if temp.exists():
+                temp.unlink()
+        except OSError:
+            pass
 
 
 def json_bytes(value):
@@ -306,7 +316,11 @@ def wait_capture(folder, timeout=1800, *, progress=print, cancel=None, choose=No
     while time.monotonic() < deadline:
         check_cancelled(cancel)
         if paused is not None and paused.is_set():
+            # Time in the user's file dialog does not consume the wait: its
+            # selection must still be accepted when the dialog closes.
+            paused_at = time.monotonic()
             cancel.wait(0.1) if cancel is not None else time.sleep(0.1)
+            deadline += time.monotonic() - paused_at
             continue
         selected = choose() if choose is not None else None
         if selected is not None:
@@ -362,8 +376,16 @@ def import_capture_unlocked(root, config, capture_path, *, new_term=False, progr
         raise DataError("采集文件缺少有效完成时间，请重新在教务首页采集。") from None
     if fetched_time.tzinfo is None:
         raise DataError("采集时间缺少时区。")
-    if previous and previous.get('capture_fetched_at') and fetched_time < datetime.fromisoformat(previous['capture_fetched_at'].replace('Z', '+00:00')):
-        raise DataError("这是比当前版本更旧的采集文件，拒绝回退课表。")
+    clock_warning = None
+    if previous and previous.get('capture_fetched_at'):
+        previous_time = datetime.fromisoformat(previous['capture_fetched_at'].replace('Z', '+00:00'))
+        if fetched_time < previous_time:
+            # A saved time far in the future can only come from a wrong clock at
+            # that capture; ordering against it would block every later capture.
+            if previous_time <= datetime.now(timezone.utc) + FUTURE_CAPTURE_TOLERANCE:
+                raise DataError("这是比当前版本更旧的采集文件，拒绝回退课表。")
+            clock_warning = ("上次保存的课表采集时间晚于当前电脑时间，可能当时电脑时间不准确；"
+                             "已按本次采集更新。请核对电脑日期时间，并确认所选文件是最新下载的。")
     progress(f"读取 浏览器 采集结果；学校数据采集时间：{fetched_at}")
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
     run_dir = root / 'data/runs' / (now.replace(':', '') + '_' + uuid.uuid4().hex[:8])
@@ -378,13 +400,22 @@ def import_capture_unlocked(root, config, capture_path, *, new_term=False, progr
     notify(observe, 'normalizing', bundle=bundle)
     events = normalize(bundle['items'], config['start'], config['end_exclusive'])
     matching_previous = None if scope_changed else previous
-    if (scope_changed and previous['scope']['semester'] == scope['semester']
-            and scope['start'] <= previous['scope']['start']
-            and scope['end_exclusive'] >= previous['scope']['end_exclusive']):
-        # All old dates were fetched again: keep aliases, revisions and tombstones.
-        # Account equality was checked above, and new_term explicitly permits this scope.
-        matching_previous = {**previous, 'scope': scope}
+    if scope_changed and previous['scope']['semester'] == scope['semester']:
+        # Same account (checked above) and semester, explicitly permitted by new_term.
+        # Old dates inside the new range were fetched again and are reconciled
+        # normally. Events outside it were not re-read: keep them as unexported
+        # retained history instead of dropping them, so a narrowed or shifted
+        # range never resets UIDs, revisions or tombstones.
+        inside = lambda event: scope['start'] <= event['date'] < scope['end_exclusive']
+        pool = previous.get('events', []) + previous.get('retained_events', [])
+        matching_previous = {**previous, 'scope': scope,
+                             'events': [e for e in pool if inside(e)],
+                             'retained_events': [e for e in pool if not inside(e)]}
     snapshot, diff = reconcile(events, matching_previous, scope, now)
+    if clock_warning:
+        diff['warnings'].append(clock_warning)
+        if snapshot['warnings'] is not diff['warnings']:
+            snapshot['warnings'].append(clock_warning)
     notify(observe, 'reconciled', event_count=len(events), **diff['summary'])
     snapshot['coverage'] = bundle['coverage']
     snapshot['request_count'] = bundle['request_count']

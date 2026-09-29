@@ -11,7 +11,6 @@ from collections import Counter
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
-from icalendar import Calendar, Event, Timezone
 
 TZ = ZoneInfo("Asia/Shanghai")
 NAMESPACE = uuid.UUID("5872874d-d0c4-4d4d-86f4-e8a228597678")
@@ -19,6 +18,10 @@ FIELDS = ("course_name", "course_code", "date", "start_time", "end_date", "end_t
 LABELS = {"course_name": "课程", "date": "日期", "start_time": "开始时间", "end_date": "结束日期",
           "end_time": "结束时间", "location": "地点", "teacher": "教师", "content": "授课内容",
           "notes": "备注", "course_type": "类型", "course_code": "课程编号"}
+
+
+MARKUP = re.compile(r"</?(?:a|b|i|u|s|p|br|hr|div|span|font|strong|em|sub|sup|img|table|tbody|thead|tr|td|th"
+                    r"|ul|ol|li|h[1-6]|center|small|big|label|blockquote|pre|code)\b[^<>\n]*>", re.I)
 
 
 class DataError(Exception):
@@ -30,7 +33,9 @@ def clean(value):
         return ""
     value = html.unescape(str(value)).replace(">>", "").replace("<<", "")
     value = re.sub(r"<br\s*/?>|</(?:p|div)>", "\n", value, flags=re.I)
-    value = re.sub(r"<[^>]*>", "", value)
+    # Remove only recognizable one-line markup. A generic <...> pattern deleted
+    # course text between comparisons such as "<140/90 ... >60".
+    value = MARKUP.sub("", value)
     return "\n".join(re.sub(r"[\t \u3000]+", " ", line).strip()
                      for line in value.replace("\r\n", "\n").replace("\r", "\n").split("\n")).strip()
 
@@ -335,7 +340,10 @@ def reconcile(events, previous, scope, now):
     if previous and previous["scope"] != scope:
         raise DataError("登录账号、学期或日期范围与上次不同。请显式建立新学期，避免误报删除。")
     old_active = {e["uid"]: e for e in (previous or {}).get("events", [])}
-    old_all = {**{e["uid"]: e for e in (previous or {}).get("cancelled_events", [])}, **old_active}
+    # Same-semester events outside a narrowed read range: not exported and not
+    # cancelled, but their UID, revision and aliases stay matchable.
+    old_retained = {e["uid"]: e for e in (previous or {}).get("retained_events", [])}
+    old_all = {**{e["uid"]: e for e in (previous or {}).get("cancelled_events", [])}, **old_retained, **old_active}
     alias_index = {}
     for uid, event in old_all.items():
         for alias in event["identity_aliases"]:
@@ -364,7 +372,7 @@ def reconcile(events, previous, scope, now):
             event.update(uid=uid, created_at=old["created_at"], modified_at=old["modified_at"], sequence=old["sequence"])
             field_diff = {k: {"before": old.get(k, ""), "after": event.get(k, "")}
                           for k in FIELDS if old.get(k, "") != event.get(k, "")}
-            restored = uid not in old_active
+            restored = uid not in old_active and uid not in old_retained
             if field_diff or restored:
                 event.update(modified_at=now, sequence=old["sequence"] + 1)
                 changes.append({"type": "ADDED" if restored else "CHANGED", "uid": uid,
@@ -379,11 +387,14 @@ def reconcile(events, previous, scope, now):
             changes.append({"type": "ADDED", "uid": uid, "course_name": event["course_name"], "date": event["date"], "fields": {}})
         event.update(last_seen_at=now, status="CONFIRMED")
         current.append(event)
-    cancelled = []
+    cancelled, retained = [], []
     for uid, old in old_all.items():
         if uid in matched:
             continue
         event = copy.deepcopy(old)
+        if uid in old_retained:
+            retained.append(event)
+            continue
         if uid in old_active:
             event.update(status="CANCELLED", cancelled_at=now, modified_at=now, sequence=old["sequence"] + 1)
             changes.append({"type": "REMOVED", "uid": uid, "course_name": old["course_name"], "date": old["date"], "fields": {}})
@@ -411,10 +422,16 @@ def reconcile(events, previous, scope, now):
         warnings.append(f"{missing_location} 个事件未提供地点。")
     snapshot = {"schema_version": 1, "timezone": "Asia/Shanghai", "scope": scope,
                 "synced_at": now, "events": current, "cancelled_events": cancelled, "warnings": warnings}
+    if retained:
+        snapshot["retained_events"] = sorted(retained, key=lambda e: (e["start"], e["uid"]))
     return snapshot, {"synced_at": now, "summary": {t: sum(c["type"] == t for c in changes) for t in ("ADDED", "REMOVED", "CHANGED")}, "changes": changes, "warnings": warnings}
 
 
 def export_ics(snapshot):
+    # Deferred: icalendar costs about a second at desktop start-up and is
+    # needed only when an ICS file is actually generated.
+    from icalendar import Calendar, Event, Timezone
+
     calendar = Calendar()
     calendar.add("prodid", "-//SHSMU Schedule Sync//CN")
     calendar.add("version", "2.0")

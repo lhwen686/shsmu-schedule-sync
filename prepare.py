@@ -7,6 +7,8 @@ from pathlib import Path
 from urllib.parse import quote
 from platform_support import bookmark_shortcut, copy_shortcut
 
+# Firefox Places refuses bookmark URLs over 65,536 characters; keep a margin.
+BOOKMARK_LIMIT = 62000
 BROWSER_MODULES = ('browser_compat.mjs', 'browser_transport.mjs', 'browser_capture.mjs', 'browser_diagnostics.mjs', 'browser_ui.mjs')
 
 
@@ -47,13 +49,29 @@ def downloads_folder():
     return Path.home() / 'Downloads'
 
 
+def compact_script(source):
+    """Shorten the bookmark without changing what the collector executes.
+
+    Leading indentation, blank lines and whole-line // comments carry no
+    meaning (the modules have no multi-line strings or template literals),
+    and a \\uXXXX escape encodes to 8 URL characters instead of 9 for each
+    Chinese character. Newlines stay, so semicolon insertion is unchanged.
+    """
+    lines = (line.strip() for line in source.replace('\r\n', '\n').split('\n'))
+    kept = '\n'.join(line for line in lines if line and not line.startswith('//'))
+    return ''.join(c if ord(c) < 128 else '\\u%04x' % ord(c) for c in kept)
+
+
 def build_bookmark(root, config, *, resources=None, desktop=False, output=None):
     resources = resources or root
     body = '\n'.join((resources / name).read_text(encoding='utf-8').replace('export ', '', 1) for name in BROWSER_MODULES)
     revision = re.search(r"const revision = '([0-9.-]+)';", body)[1]
     public_config = {k: config[k] for k in ('semester', 'start', 'end_exclusive')}
-    script = 'void(async()=>{\n' + body + '\nconst CONFIG=' + json.dumps(public_config, ensure_ascii=False) + ';\nawait runBookmark(CONFIG);\n})();'
+    script = compact_script('void(async()=>{\n' + body + '\nconst CONFIG=' + json.dumps(public_config, ensure_ascii=False)
+                            + ';\nawait runBookmark(CONFIG);\n})();')
     bookmark = 'javascript:' + quote(script, safe="~()*!.'")
+    if len(bookmark) > BOOKMARK_LIMIT:
+        raise ValueError(f'书签长度 {len(bookmark)} 超过 {BOOKMARK_LIMIT}，Firefox 可能无法保存；请先精简采集脚本。')
     display = html.escape(bookmark, quote=True)
     years, term = config['semester'].split(':')
     semester_label = f'{years} 学年 · 第 {term} 学期'
