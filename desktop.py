@@ -11,6 +11,7 @@ import os
 import queue
 import subprocess
 import sys
+import threading
 import time
 import uuid
 import tkinter as tk
@@ -27,6 +28,7 @@ from desktop_service import (APP_VERSION, HOME_URL, DesktopJob, DesktopService,
 from prepare import downloads_folder
 from platform_support import (MAC_PACKAGE_LABEL, bookmark_shortcut, reveal_command,
                               scroll_units, ui_font_family, select_data_root)
+import updater
 from sync import atomic_write, capture_folder, json_bytes, load_current, load_settings
 from wakeup import load_slot_times, slot_times
 
@@ -93,6 +95,8 @@ class AssistantWindow:
         self.pictures = {}
         self.wheel_rest = 0
         self.status = tk.StringVar(value='')
+        self.update_release = None
+        self.update_busy = False
         self.window.title('医学院课表助手')
         self.window.configure(bg=PAGE)
         scale = max(1, self.window.winfo_fpixels('1i') / 96)
@@ -136,6 +140,10 @@ class AssistantWindow:
                 self.service.diagnostics = DiagnosticRecorder(self.base)
             self.handle_error(error, 'startup_failed')
         self.poll_id = self.window.after(100, self.poll)
+        if updater.current_executable() and not os.environ.get('SHSMU_NO_UPDATE_CHECK'):
+            if sys.platform == 'win32':
+                threading.Thread(target=updater.cleanup_old_copies, daemon=True).start()
+            self.later(4000, lambda: self.check_updates(silent=True))
 
     def _sidebar(self):
         px = self.px
@@ -165,6 +173,10 @@ class AssistantWindow:
         self.nav_buttons.append(help_button)
         font, colour = self.theme.text('side')
         tk.Label(footer, text=APP_VERSION, font=font, fg=colour, bg=SIDEBAR).pack(anchor='w', padx=px(14), pady=(px(14), 0))
+        self.update_button = ttk.Button(footer, text='检查更新', style=self.theme.button_style('Link', SIDEBAR),
+                                        command=lambda: self.check_updates(silent=False))
+        self.update_button.pack(anchor='w', padx=px(14), pady=(px(4), 0))
+        self.bind_button(self.update_button)
 
     def reopen(self):
         if not self.disposed and not self.closing:
@@ -203,6 +215,143 @@ class AssistantWindow:
         handle = self.window.after_idle(run)
         self.ui_after.add(handle)
         return handle
+
+    def later(self, delay, callback):
+        def run():
+            self.ui_after.discard(handle)
+            if not self.disposed:
+                callback()
+        handle = self.window.after(delay, run)
+        self.ui_after.add(handle)
+        return handle
+
+    def background(self, work, done, tick=None):
+        """Run `work` off the Tk thread; `done(ok, value)` and `tick()` run on it."""
+        results = queue.Queue()
+        def worker():
+            try:
+                results.put((True, work()))
+            except BaseException as error:
+                results.put((False, error))
+        def check():
+            if tick:
+                tick()
+            try:
+                ok, value = results.get_nowait()
+            except queue.Empty:
+                self.later(150, check)
+                return
+            done(ok, value)
+        threading.Thread(target=worker, daemon=True).start()
+        self.later(150, check)
+
+    # -- updates --------------------------------------------------------------
+    def check_updates(self, silent):
+        if self.update_busy:
+            return
+        self.update_busy = True
+        if not silent:
+            self.update_button.configure(text='正在检查…', state='disabled')
+        def done(ok, value):
+            self.update_busy = False
+            self.update_button.configure(state='normal', text='检查更新', command=lambda: self.check_updates(silent=False))
+            if not ok:
+                self.service.diagnostics.event('update_check_failed', error=type(value).__name__)
+                if not silent:
+                    messagebox.showwarning('检查更新', str(value) if isinstance(value, updater.UpdateError)
+                                           else '暂时无法检查更新，请稍后再试。', parent=self.window)
+                return
+            if not updater.is_newer(value.version):
+                if not silent:
+                    messagebox.showinfo('检查更新', f'当前已是最新版本（{APP_VERSION}）。', parent=self.window)
+                return
+            self.update_release = value
+            self.update_button.configure(text=f'有新版本 {value.version}', command=lambda: self.offer_update(value))
+            self.service.diagnostics.event('update_available', version=value.version)
+            # Never interrupt a running collection or export with a startup prompt.
+            if not (silent and self.running):
+                self.offer_update(value)
+        self.background(updater.fetch_release, done)
+
+    def offer_update(self, release):
+        if self.running or self.update_busy:
+            messagebox.showinfo('稍后更新', '请等当前的读取或导出完成后，再点击左下角的新版本提示更新。', parent=self.window)
+            return
+        notes = release.notes.strip() or '修复问题并改进稳定性。'
+        bookmark = ''
+        if release.collector_revision and release.collector_revision != updater.bundled_collector_revision():
+            bookmark = (f'\n\n本次更新包含新的课表书签（{release.collector_revision}）。'
+                        '更新后请按助手提示重新安装书签，替换浏览器里的旧书签。')
+        if sys.platform == 'win32':
+            action = '点击“是”后自动下载，完成后助手会重新打开。'
+        else:
+            action = '点击“是”后下载到“下载”文件夹，再按提示替换应用。'
+        if not messagebox.askyesno(f'发现新版本 {release.version}',
+                                   f'当前版本：{APP_VERSION}\n新版本：{release.version}（约 {release.size_label}）\n\n'
+                                   f'{notes}{bookmark}\n\n课表、设置和历史记录保存在单独的文件夹，更新不会影响它们。\n'
+                                   f'{action}\n\n现在更新吗？', parent=self.window):
+            return
+        self.install_update(release)
+
+    def install_update(self, release):
+        self.update_busy = True
+        dialog = self.dialog('正在更新', 480, 200)
+        dialog.minsize(1, 1)
+        dialog.geometry(f'{self.px(480)}x{self.px(200)}')
+        dialog.grab_set()
+        frame = tk.Frame(dialog, bg=BG)
+        frame.pack(fill='both', expand=True, padx=self.px(24), pady=self.px(20))
+        message = tk.StringVar(value=f'正在下载 {release.version}…')
+        tk.Label(frame, textvariable=message, bg=BG, fg=TEXT, justify='left',
+                 wraplength=self.px(420)).pack(anchor='w')
+        bar = ttk.Progressbar(frame, maximum=release.size, mode='determinate')
+        bar.pack(fill='x', pady=self.px(16))
+        state = {'received': 0, 'cancel': False}
+        def cancel():
+            state['cancel'] = True
+            message.set('正在取消…')
+        ttk.Button(frame, text='取消', command=cancel).pack(anchor='e')
+        dialog.protocol('WM_DELETE_WINDOW', cancel)
+        def progress(received, total):
+            state['received'] = received
+        def tick():
+            if dialog.winfo_exists():
+                bar.configure(value=state['received'])
+        def work():
+            options = dict(progress=progress, cancelled=lambda: state['cancel'])
+            if sys.platform == 'win32':
+                return updater.install_windows(release, **options)
+            return updater.download_for_manual_install(release, downloads_folder(), **options)
+        def done(ok, value):
+            self.update_busy = False
+            if dialog.winfo_exists():
+                dialog.grab_release()
+                dialog.destroy()
+            if not ok:
+                self.service.diagnostics.event('update_failed', version=release.version, error=type(value).__name__)
+                if not isinstance(value, updater.UpdateCancelled):
+                    messagebox.showerror('更新未完成', (str(value) if isinstance(value, updater.UpdateError)
+                                         else '更新失败，当前版本未改动，可稍后再试。'), parent=self.window)
+                return
+            self.service.diagnostics.event('update_downloaded', version=release.version)
+            if sys.platform == 'win32':
+                executable, old = value
+                try:
+                    updater.launch(executable)
+                except OSError:
+                    updater.restore_exe(executable, old)
+                    messagebox.showerror('更新未完成', '新版本无法启动，已恢复原版本。', parent=self.window)
+                    return
+                self.dispose()
+            else:
+                try:
+                    reveal_file(value)
+                except (OSError, DataError):
+                    pass
+                messagebox.showinfo('新版本已下载', f'已保存到：{value}\n\n1. 退出助手（Command+Q）。\n'
+                                    '2. 解压 ZIP，把 Mac 文件夹中的“医学院课表助手.app”拖入“应用程序”并选择替换。\n'
+                                    '3. 重新打开助手。课表和设置会保留。', parent=self.window)
+        self.background(work, done, tick)
 
     def bind_button(self, button):
         def invoke(event):

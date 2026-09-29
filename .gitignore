@@ -32,3 +32,6 @@ shsmu-support-*.zip
 课表助手排错日志-*.zip
 *.record.json
 *.material.json
+
+# Build-time update mirror address (see deploy/README.md).
+update_sources.py

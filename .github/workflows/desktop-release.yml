@@ -47,6 +47,28 @@ jobs:
         run: python -m pip install -r requirements-build.txt
       - name: Complete Python, JavaScript and applicable CMD checks
         run: python -X utf8 check.py --python-timeout 600
+      # Optional repository variables UPDATE_MANIFEST_URLS / UPDATE_FILE_URLS:
+      # HTTPS URL templates, one per line, tried in order ({version}, {name}).
+      # Unset means the GitHub defaults in updater.py.
+      - name: Configure update download addresses
+        env:
+          UPDATE_MANIFEST_URLS: ${{ vars.UPDATE_MANIFEST_URLS }}
+          UPDATE_FILE_URLS: ${{ vars.UPDATE_FILE_URLS }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          lines = lambda key: tuple(v.strip() for v in os.environ.get(key, '').splitlines() if v.strip())
+          manifest, files = lines('UPDATE_MANIFEST_URLS'), lines('UPDATE_FILE_URLS')
+          if manifest or files:
+              import updater
+              sources = updater.validate_sources({'manifest': manifest, 'files': files})
+              with open('update_sources.py', 'w', encoding='utf-8') as out:
+                  out.write('SOURCES = %r\n' % sources)
+              print('update sources:', sources)
+          else:
+              print('update sources: GitHub defaults')
+          PY
       - name: Build native application from this commit
         run: python -X utf8 build_desktop.py --output-dir dist/native --work-dir build/native
       - name: Check frozen runtime, generated bookmark and relocation
@@ -134,3 +156,12 @@ jobs:
               assert path.read_bytes() == (downloaded / path.name).read_bytes(), path.name
           print('PASS: all published names and bytes match the reviewed assets')
           PY
+      - name: Point the GitHub update channel at this release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view update-channel >/dev/null 2>&1 || gh release create update-channel \
+            --prerelease --title "自动更新通道（请勿删除）" \
+            --notes "助手内“检查更新”读取本页的 latest.json。安装包请到各版本发布页下载。"
+          gh release upload update-channel release-assets/latest.json --clobber

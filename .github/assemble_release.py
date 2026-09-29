@@ -10,6 +10,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from diagnostics import APP_VERSION
 from package_desktop import combine
+from updater import WINDOWS_EXE, build_manifest, bundled_collector_revision
+
+
+def update_notes(limit=600):
+    """The first paragraph of RELEASE_NOTES.md as plain text for the update prompt."""
+    text = (ROOT / 'RELEASE_NOTES.md').read_text(encoding='utf-8')
+    paragraph = text.strip().split('\n\n')[0].replace('**', '').replace('`', '')
+    return paragraph if len(paragraph) <= limit else paragraph[:limit - 1] + '…'
 
 
 def main():
@@ -43,6 +51,12 @@ def main():
                 'generated_bookmark_sha256': reports[0]['generated_bookmark_sha256'],
                 'native_self_tests': {'windows': reports[0], 'macos': reports[1]}}
     (output / 'build-verification.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding='utf-8')
+    # The in-app updater reads this; it names files, never hosts (see updater.py).
+    update = build_manifest(APP_VERSION, update_notes(), bundled_collector_revision(ROOT), {
+        'windows-x64': {'name': f'{prefix}-Windows-x64.zip', 'path': output / f'{prefix}-Windows-x64.zip',
+                        'member': WINDOWS_EXE},
+        'macos-arm64': {'name': mac_name, 'path': output / mac_name}})
+    (output / 'latest.json').write_text(json.dumps(update, ensure_ascii=False, indent=2), encoding='utf-8')
     for path in output.glob('*.zip'):
         with zipfile.ZipFile(path) as archive:
             assert archive.testzip() is None
