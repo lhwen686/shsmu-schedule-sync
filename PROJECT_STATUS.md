@@ -1,6 +1,13 @@
 # 项目状态
 
 <a id="baseline"></a>
+## rc16 双平台预发布（2026-09-29）
+
+基于已合并的公开 main `b4c324f`（PR #11），发布分支 `codex/release-rc16`。应用 `1.0.0-rc16`、Mac 修订 10 / 构建号 `16.0`，书签 `2026-09-29.19`；首次包含应用内更新（GitHub `update-channel` 的 `latest.json`）、界面改版和逐条读取。
+[rc16 下载页](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc16) 已发布七个附件（含 `latest.json`），对应源码 `ccbc72dcb33c9ec4b7c33c0686b36aabdf5da022`；`update-channel` 预发布同时建立。首次[发布工作流](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36539842428)因两个 Mac 专属测试与改版后行为不符而在发布前停止，修正测试后[重新运行](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36541396692)全部通过：两端各 265 项，Windows 258 PASS、7 SKIP，Mac 264 PASS、1 SKIP；三组 JS、原生构建、冻结自检、合包和线上回读 PASS。
+本机回下载七个附件及更新通道清单，SHA-256、清单大小/哈希/包内 EXE 哈希、ZIP 完整性与隐私检查通过；程序更新模块经真实 GitHub 读取到 rc16；下载后的 Windows EXE 自检 PASS。
+升级后需手动替换 `.19` 书签。rc15 没有更新功能，需手动安装本版一次。打包程序经网络的实际自动更新（需下一版本）、学校实采/耗时、手机导入、最终 EXE/APP 人工窗口及实际缩放仍为 NOT RUN；旧 rc15 附件保留。详见 [rc16 记录](VERIFICATION.md#release-rc16) 与 [验收表](STUDENT_ACCEPTANCE.md#acceptance-rc16)。
+
 ## rc15 双平台预发布（2026-09-28）
 
 基于已合并的公开 main `2c77b71`，发布分支 `codex/release-rc15`。应用 `1.0.0-rc15`、Mac 修订 9 / 构建号 `15.0`，书签 `2026-09-28.16`；保留现有设计及 PR #9 修复，仅更新发布版本、工作流和说明。
@@ -8,7 +15,7 @@
 本机回下载核对六个附件、25 项源码哈希和 64 个 Mac 符号链接通过；下载后的 Windows EXE 在中文空格路径、隔离数据及无 Python PATH 下自检 PASS。
 升级后需手动替换 `.16` 书签。学校实采/耗时、手机导入、最终 EXE/APP 人工窗口及实际缩放仍为 NOT RUN；旧 rc14 附件保留。详见 [rc15 记录](VERIFICATION.md#release-rc15) 与 [验收表](STUDENT_ACCEPTANCE.md#acceptance-rc15)。
 
-## 2026-09-29 回到逐条读取（未发布）
+## 2026-09-29 回到逐条读取（已随 rc16 发布）
 
 同分支。`.18` 首次（全量）实采在第 1、9 条详情即出现重试提示，用户要求完全回到最初读取方式。书签 `2026-09-29.19`：三个浏览器模块及对应 JS 测试恢复为并发改动前（`2c77b71~1`，即 `.14`）的逐条读取——一次一个请求、间隔 1 秒、每次最多等 45 秒，每次重读全部详情；与原版逐字节一致，仅修订号不同。`.16`–`.18` 的并发、分档超时、增量缓存与空详情重读均已撤回。预计约 4.5–5 分钟（此前三次原版全量实采 4:55–5:13、0 次重试）。需手动替换为 `.19` 书签；学校实采 NOT RUN。详见 [本次记录](VERIFICATION.md#rollback-sequential-20260929)。
 

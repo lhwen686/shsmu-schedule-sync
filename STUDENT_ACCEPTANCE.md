@@ -1,5 +1,21 @@
 # 学生版候选版本验收
 
+<a id="acceptance-rc16"></a>
+## rc16 双平台候选版（2026-09-29）
+
+对象：Windows x64 EXE 与 Apple 芯片 Mac APP；应用 `1.0.0-rc16`、Mac 修订 10、构建号 `16.0`、书签 `2026-09-29.19`。首次包含应用内更新、界面改版（BUG-009）、审计修复和逐条读取。
+
+| 项目 | 本版状态 |
+| --- | --- |
+| 双平台完整检查、原生构建和冻结自检 | PASS：同一源码 `ccbc72d`，两端各 265 项；Windows 258 PASS、7 Mac SKIP，Mac 264 PASS、1 Windows CMD SKIP；回下载 Windows EXE 自检 PASS |
+| 附件哈希、更新清单与更新通道 | PASS：七个附件本机回下载一致；`latest.json` 与包大小/哈希/包内 EXE 一致；真实 GitHub 读取到 rc16 |
+| 打包程序之间的实际自动更新（Windows 替换重启、Mac 下载） | NOT RUN；需下一版本发布后验证 |
+| 最终 EXE/APP 人工窗口、Windows 实际各档缩放、Mac 鼠标/Dock | NOT RUN |
+| 学校短/全范围、真实耗时、网页核对、独立重复采集 | NOT RUN；逐条读取比 rc15 慢，合成耗时不等于学校实测 |
+| 手机导入、其他电脑 | NOT RUN；Intel Mac 不在本版构建范围 |
+
+rc15 及更早版本需手动安装本版一次；升级前退出旧助手并保留原课表目录；升级后手动替换旧书签。证据见 [rc16 发布记录](VERIFICATION.md#release-rc16)。
+
 <a id="acceptance-rc15"></a>
 ## rc15 双平台候选版（2026-09-28）
 

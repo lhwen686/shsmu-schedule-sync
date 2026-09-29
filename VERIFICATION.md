@@ -1,5 +1,39 @@
 # 验证与修复记录
 
+<a id="release-rc16"></a>
+## RELEASE-RC16：应用内更新、界面改版与逐条读取双平台附件
+
+2026-09-29，用户要求发布并下载。基线为已合并 PR #11 的公开 main `b4c324f44e12b505a994582399a2e8af02e21e0e`，新建 `codex/release-rc16`，仅修改版本、发布工作流、打包版本断言及说明。候选 `1.0.0-rc16` / Mac 修订 10 / 构建号 `16.0` / 书签 `2026-09-29.19`。
+
+首次[发布工作流](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36539842428)：Windows PASS；Mac 两项 FAIL，发布前停止、未产生附件。`test_scrolling_does_not_rebuild_the_scroll_region`：Tk Aqua 移动内容框时向所有子控件发送 `<Configure>`，`_wrap_label` 被调用 36 次但宽度未变、直接返回；测试改为断言滚动时没有任何标签获得新的 `wraplength`（本机模拟逐次 `<Configure>`：现有处理 PASS，改成每次重排的处理 FAIL）。`test_mac_quit_routes_through_safe_close_and_is_idempotent`：审计修复后 `close()` 在无存活后台任务时清除遗留的运行标记，测试改为保持 `DesktopJob.busy` 为真。两项均为 rc15 之后界面改版/审计修复在 Mac 上首次运行暴露，产品代码未改。本机 Windows 完整检查 265 项：256 PASS、9 SKIP，退出 0。
+
+[发布工作流 36541396692](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36541396692) 全部 PASS；[rc16 预发布](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc16) 对应源码 `ccbc72dcb33c9ec4b7c33c0686b36aabdf5da022`，七个附件；`update-channel` 预发布首次建立并上传同一 `latest.json`。旧 rc15 附件保留。
+
+| 本轮检查 | 实际结果 |
+| --- | --- |
+| Windows 原生完整检查 | 265 项：258 PASS、7 Mac SKIP、0 FAIL/ERROR，Python 77.054 秒，三组 JS PASS |
+| Mac arm64 原生完整检查 | 265 项：264 PASS、1 Windows CMD SKIP、0 FAIL/ERROR，Python 73.484 秒，三组 JS PASS |
+| 原生构建、冻结自检、合包与线上回读 | PASS；两端生成书签哈希一致 |
+| 本机独立回下载 | PASS：七个附件大小与发布页一致（经本机代理中断一次后逐个重下）；`SHA256SUMS.txt` 覆盖的六个附件哈希一致；`update-channel/latest.json` 与发布附件逐字节相同 |
+| 更新清单 | PASS：`1.0.0-rc16`、书签 `.19`；Windows/Mac 包大小与 SHA-256、Windows 包内 EXE SHA-256 与清单一致；`updater.parse_manifest` 通过，rc15 判定为有更新、rc16 不提示自身 |
+| 真实网络读取 | PASS：`updater.fetch_release()` 默认来源经 GitHub 读取到 rc16，下载地址指向 v1.0.0-rc16 附件 |
+| ZIP 与隐私 | PASS：三个 ZIP CRC 完整；无课表数据、配置、`update_sources.py` 或审计报告 |
+| 下载后的 Windows EXE | PASS，退出 0；`--self-test`：`frozen=true`、rc16、书签 `.19`、内置书签校验通过 |
+
+两端源码指纹：`484c903826579aebc544f4a1b1bc565b1856d27733ee991aae35f48e43879a7e`。生成书签 SHA-256：`9d042a54b88f7d410d74b3c2fe97cc5efc7113d6160f23e109af645a95073260`。
+
+| 公开产物 | SHA-256 |
+| --- | --- |
+| SHSMU-Schedule-Assistant-1.0.0-rc16-Mac-arm64.zip | `7c24059d99c53b400ecd1da0751ea726c0364c6e0724e9e4ebd3beb85ce4aa71` |
+| SHSMU-Schedule-Assistant-1.0.0-rc16-Windows-x64-Mac-arm64.zip | `fc531d8598089758f451e32eebd160acf77b3f82da4a7b5200c04b63504d35aa` |
+| SHSMU-Schedule-Assistant-1.0.0-rc16-Windows-x64.zip | `6ef5c0381fd66d22b664669dcb0233593fb9a7c1ea682f2bb72fc5e6e6d6830a` |
+| User-Guide.html | `3923525844a1af2d0f627abdd2bc3c7ad32ac9202fe594d490d101e74068c507` |
+| build-verification.json | `73b75c4c9da7a1c1ac594e22fb874ca0b167228521c81a8bb61aef955d1b604f` |
+| latest.json | `b35ddf42b482ba2a4611a5158cf58328a3750893a1fdee33cd94863c06ab4ac4` |
+| Windows EXE | `6ef4338f7077d24d5c4483ff2874d765e0c0f2f403e1a3880b01eae9d418f879` |
+
+NOT RUN：打包程序之间经网络的实际自动更新（需下一版本发布后验证）、Mac 更新下载流程实机、下载后的 Mac APP、学校采集/耗时、手机导入、最终包人工窗口和实际缩放。
+
 <a id="rollback-sequential-20260929"></a>
 ## ROLLBACK-SEQUENTIAL-20260929：回到最初逐条读取（未发布）
 

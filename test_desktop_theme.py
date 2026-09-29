@@ -120,11 +120,17 @@ class MedicalThemeTests(unittest.TestCase):
         self.window.geometry('1000x420')
         self.ui.show_files()
         self.window.update()
-        with patch.object(self.ui, '_wrap_label') as rewrap:
+        # Aqua sends <Configure> to every descendant of the moved frame; the
+        # handler must then be a no-op rather than re-wrapping any label.
+        labels = [w for w in walk_widgets(self.ui.content) if isinstance(w, tk.Label) and hasattr(w, 'wrap')]
+        before = [(w.wrap, str(w.cget('wraplength'))) for w in labels]
+        with patch.object(tk.Label, 'configure', autospec=True, side_effect=tk.Label.configure) as configure:
             for _ in range(3):
                 self.ui.scroller.yview_scroll(1, 'units')
                 self.window.update()
-            rewrap.assert_not_called()
+            rewrapped = [call for call in configure.call_args_list if 'wraplength' in call.kwargs]
+            self.assertEqual(rewrapped, [])
+        self.assertEqual([(w.wrap, str(w.cget('wraplength'))) for w in labels], before)
         self.assertGreater(self.ui.scroller.offset, 0)
 
     @unittest.skipUnless(sys.platform == 'darwin', 'Aqua point scale')
