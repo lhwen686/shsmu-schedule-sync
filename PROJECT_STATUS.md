@@ -8,6 +8,12 @@
 本机回下载七个附件及更新通道清单，SHA-256、清单大小/哈希/包内 EXE 哈希、ZIP 完整性与隐私检查通过；程序更新模块经真实 GitHub 读取到 rc16；下载后的 Windows EXE 自检 PASS。
 升级后需手动替换 `.19` 书签。rc15 没有更新功能，需手动安装本版一次。打包程序经网络的实际自动更新（需下一版本）、学校实采/耗时、手机导入、最终 EXE/APP 人工窗口及实际缩放仍为 NOT RUN；旧 rc15 附件保留。详见 [rc16 记录](VERIFICATION.md#release-rc16) 与 [验收表](STUDENT_ACCEPTANCE.md#acceptance-rc16)。
 
+## 2026-09-29 更新清单签名源码更新（未发布）
+
+分支 `codex/signed-update-manifest` 基于 `main` `dc8d443`。发布时另生成 `latest-signed.json`：原 `latest.json` 字节加 Ed25519 签名（内置纯 Python 实现，未增加依赖）。新版程序只接受由内置公钥（发布密钥 + 离线备份密钥）签名的清单，因此清单和安装包都可以放在任意镜像、代理或网盘直链；某一来源被篡改或内容过期时换下一个来源，不会停在旧版本。rc16 仍读取未签名的 `latest.json`，发布时两者同时上传。
+发布前需在仓库 Secrets 设置 `UPDATE_SIGNING_KEY`，未设置时发布工作流会在打包阶段停止。私钥只保存在本机被忽略的 `local/update-signing/` 目录，需另行离线备份。
+本地完整检查：Python 272 项 263 PASS、9 SKIP、0 FAIL；三组 JS PASS；签名实现通过 RFC 8032 测试向量，并与 `cryptography` 交叉比对。原生构建、带签名的 CI 发布、镜像实际下载为 NOT RUN。
+
 ## rc15 双平台预发布（2026-09-28）
 
 基于已合并的公开 main `2c77b71`，发布分支 `codex/release-rc15`。应用 `1.0.0-rc15`、Mac 修订 9 / 构建号 `15.0`，书签 `2026-09-28.16`；保留现有设计及 PR #9 修复，仅更新发布版本、工作流和说明。

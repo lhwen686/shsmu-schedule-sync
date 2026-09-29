@@ -49,7 +49,8 @@ jobs:
         run: python -X utf8 check.py --python-timeout 600
       # Optional repository variables UPDATE_MANIFEST_URLS / UPDATE_FILE_URLS:
       # HTTPS URL templates, one per line, tried in order ({version}, {name}).
-      # Unset means the GitHub defaults in updater.py.
+      # Manifest URLs must serve latest-signed.json; any host may, since the
+      # app checks the signature. Unset means the GitHub defaults in updater.py.
       - name: Configure update download addresses
         env:
           UPDATE_MANIFEST_URLS: ${{ vars.UPDATE_MANIFEST_URLS }}
@@ -102,7 +103,9 @@ jobs:
         with:
           name: macos-rc16
           path: artifacts/macos
-      - name: Compare source manifests and bookmark bytes, create ZIPs and checksums
+      - name: Compare source manifests and bookmark bytes, create ZIPs, checksums and signed manifest
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
         run: python -X utf8 .github/assemble_release.py
       - name: Upload reviewed release assets
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -164,4 +167,4 @@ jobs:
           gh release view update-channel >/dev/null 2>&1 || gh release create update-channel \
             --prerelease --title "自动更新通道（请勿删除）" \
             --notes "助手内“检查更新”读取本页的 latest.json。安装包请到各版本发布页下载。"
-          gh release upload update-channel release-assets/latest.json --clobber
+          gh release upload update-channel release-assets/latest.json release-assets/latest-signed.json --clobber

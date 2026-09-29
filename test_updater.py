@@ -1,3 +1,4 @@
+import base64
 import dataclasses
 import hashlib
 import io
@@ -7,7 +8,15 @@ import unittest
 import zipfile
 from pathlib import Path
 
+import update_signing
 import updater
+
+TEST_SEED = bytes(range(32))
+TEST_KEYS = (update_signing.public_key(TEST_SEED).hex(),)
+
+
+def signed(manifest_bytes, seed=TEST_SEED):
+    return updater.sign_manifest(manifest_bytes, seed, (update_signing.public_key(seed).hex(),))
 
 
 class FakeResponse(io.BytesIO):
@@ -87,7 +96,7 @@ class ManifestTest(unittest.TestCase):
 
     def test_defaults_point_at_github_releases(self):
         self.assertEqual(updater.manifest_urls(updater.DEFAULT_SOURCES), [
-            'https://github.com/lhwen686/shsmu-schedule-sync/releases/download/update-channel/latest.json'])
+            'https://github.com/lhwen686/shsmu-schedule-sync/releases/download/update-channel/latest-signed.json'])
         self.assertEqual(updater.file_urls('1.0.0-rc16', 'a.zip', updater.DEFAULT_SOURCES), [
             'https://github.com/lhwen686/shsmu-schedule-sync/releases/download/v1.0.0-rc16/a.zip'])
 
@@ -99,8 +108,8 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(urls, ['https://one.test/latest.json', 'https://two.test/latest.json'],
                          'plain HTTP is dropped')
         self.assertEqual(updater.file_urls('1.0.0-rc16', 'a.zip', sources), ['https://one.test/1.0.0-rc16/a.zip'])
-        opener = opener_for({urls[-1]: self.data})
-        release = updater.fetch_release(sources, 'windows-x64', opener)
+        opener = opener_for({urls[-1]: signed(self.data)})
+        release = updater.fetch_release(sources, 'windows-x64', opener, '1.0.0-rc15', TEST_KEYS)
         self.assertEqual(release.version, '1.0.0-rc16')
         self.assertEqual(opener.calls, urls)
 
@@ -112,6 +121,51 @@ class ManifestTest(unittest.TestCase):
     def test_unreachable_everywhere_is_a_readable_error(self):
         with self.assertRaisesRegex(updater.UpdateError, '无法连接'):
             updater.fetch_release([], 'windows-x64', opener_for({}))
+
+    def manifest_for(self, version):
+        return json.dumps(dict(self.manifest, version=version)).encode()
+
+    def test_unsigned_tampered_or_foreign_manifests_are_skipped(self):
+        envelope = json.loads(signed(self.data))
+        envelope['manifest'] = base64.b64encode(self.manifest_for('9.9.9')).decode()
+        bad = [self.data,                         # plain latest.json, the format rc16 reads
+               json.dumps(envelope).encode(),     # manifest swapped under a valid signature
+               signed(self.data, bytes(32))]      # well formed, but by an untrusted key
+        sources = {'manifest': [f'https://m{i}.test/latest-signed.json' for i in range(4)]}
+        urls = updater.manifest_urls(sources)
+        opener = opener_for({**dict(zip(urls, bad)), urls[3]: signed(self.data)})
+        release = updater.fetch_release(sources, 'windows-x64', opener, '1.0.0-rc15', TEST_KEYS)
+        self.assertEqual(release.version, '1.0.0-rc16')
+        self.assertEqual(opener.calls, urls)
+        with self.assertRaisesRegex(updater.UpdateError, '签名无效'):
+            updater.fetch_release(sources, 'windows-x64', opener_for(dict(zip(urls, bad))), '1.0.0-rc15', TEST_KEYS)
+
+    def test_stale_mirror_cannot_hide_a_newer_release(self):
+        sources = {'manifest': ['https://stale.test/a.json', 'https://fresh.test/b.json', 'https://c.test/c.json']}
+        urls = updater.manifest_urls(sources)
+        opener = opener_for({urls[0]: signed(self.manifest_for('1.0.0-rc15')),
+                             urls[1]: signed(self.manifest_for('1.0.0-rc17')),
+                             urls[2]: signed(self.manifest_for('1.0.0-rc18'))})
+        release = updater.fetch_release(sources, 'windows-x64', opener, '1.0.0-rc16', TEST_KEYS)
+        self.assertEqual(release.version, '1.0.0-rc17', 'the first newer release is enough')
+        self.assertEqual(opener.calls, urls[:2])
+        opener = opener_for({urls[0]: signed(self.manifest_for('1.0.0-rc14')),
+                             urls[1]: signed(self.manifest_for('1.0.0-rc16'))})
+        release = updater.fetch_release(sources, 'windows-x64', opener, '1.0.0-rc16', TEST_KEYS)
+        self.assertEqual(release.version, '1.0.0-rc16', 'no update: report the newest seen')
+        self.assertEqual(opener.calls, urls)
+
+    def test_release_side_refuses_a_key_the_app_does_not_trust(self):
+        with self.assertRaisesRegex(updater.UpdateError, '签名无效'):
+            updater.sign_manifest(self.data, bytes(32), TEST_KEYS)
+        envelope = updater.sign_manifest(self.data, TEST_SEED, TEST_KEYS)
+        self.assertEqual(updater.verified_manifest(envelope, TEST_KEYS), self.data)
+
+    def test_shipped_trust_list_is_well_formed(self):
+        self.assertGreaterEqual(len(set(updater.TRUSTED_KEYS)), 2, 'release key plus offline backup')
+        for key in updater.TRUSTED_KEYS:
+            self.assertRegex(key, r'^[0-9a-f]{64}$')
+            self.assertIsNotNone(update_signing._decompress(bytes.fromhex(key)))
 
     def test_https_downgrade_is_refused(self):
         response = FakeResponse(b'{}', url='http://downgraded.test/latest.json')

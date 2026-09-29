@@ -3,9 +3,15 @@
 The manifest (`latest.json`) names no hosts. Where it and the packages are
 downloaded from is a list of HTTPS URL templates, tried in order: GitHub by
 default, or `SOURCES` from an optional build-time `update_sources.py`.
+
+The client reads `latest-signed.json`: the exact `latest.json` bytes plus an
+Ed25519 signature by one of `TRUSTED_KEYS`. Because the manifest carries every
+package's SHA-256, a valid signature makes any mirror, proxy or file host
+usable without trusting it. Unsigned `latest.json` is still published for rc16.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -20,10 +26,21 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+import update_signing
 from diagnostics import APP_VERSION
 
 GITHUB_REPOSITORY = 'lhwen686/shsmu-schedule-sync'
 CHANNEL_TAG = 'update-channel'
+SIGNED_MANIFEST = 'latest-signed.json'
+SIGNED_FORMAT = 'shsmu-update-signed-1'
+# Signed bytes are prefixed so this key's signatures mean nothing elsewhere.
+SIGNING_CONTEXT = b'SHSMU-Schedule-Assistant update manifest v1\n'
+# Release key (GitHub secret UPDATE_SIGNING_KEY) first, then the offline backup
+# key. Rotating a key needs a release signed by a key the old version trusts.
+TRUSTED_KEYS = (
+    'f6d1eea10feb049b1eaa8fc36ddd8bb6dc8fe9957bc4566be5ec7e64e5b5599f',
+    '78918de02fcdcd2f6524d4dde86d136ebb5ea9f965aa53388ca19787387b02f3',
+)
 MANIFEST_LIMIT = 64 * 1024
 DOWNLOAD_LIMIT = 300 * 1024 * 1024
 TIMEOUT = 20
@@ -34,7 +51,7 @@ WINDOWS_EXE = 'Windows/医学院课表助手.exe'
 
 # `{version}` and `{name}` are filled in for package downloads.
 DEFAULT_SOURCES = {
-    'manifest': (f'https://github.com/{GITHUB_REPOSITORY}/releases/download/{CHANNEL_TAG}/latest.json',),
+    'manifest': (f'https://github.com/{GITHUB_REPOSITORY}/releases/download/{CHANNEL_TAG}/{SIGNED_MANIFEST}',),
     'files': (f'https://github.com/{GITHUB_REPOSITORY}/releases/download/v{{version}}/{{name}}',),
 }
 
@@ -139,6 +156,32 @@ def parse_manifest(data, platform=None):
     return Release(version, notes[:4000], revision[:40], name, digest, size, member, member_digest)
 
 
+def sign_manifest(manifest_bytes, seed, trusted=TRUSTED_KEYS):
+    """Release-side: wrap the exact manifest bytes with a signature the app will accept."""
+    signature = update_signing.sign(seed, SIGNING_CONTEXT + manifest_bytes)
+    envelope = json.dumps({'format': SIGNED_FORMAT,
+                           'manifest': base64.b64encode(manifest_bytes).decode('ascii'),
+                           'signature': base64.b64encode(signature).decode('ascii')}, indent=2).encode('utf-8')
+    verified_manifest(envelope, trusted)  # A key the app does not trust must fail the release, not the students.
+    return envelope
+
+
+def verified_manifest(data, trusted=TRUSTED_KEYS):
+    """Return the inner manifest bytes only if a trusted key signed them."""
+    try:
+        envelope = json.loads(data.decode('utf-8'))
+        if not isinstance(envelope, dict) or envelope.get('format') != SIGNED_FORMAT:
+            raise ValueError
+        manifest = base64.b64decode(envelope['manifest'], validate=True)
+        signature = base64.b64decode(envelope['signature'], validate=True)
+    except (UnicodeDecodeError, ValueError, KeyError, TypeError) as error:
+        raise UpdateError('更新信息格式错误或未签名。') from error
+    message = SIGNING_CONTEXT + manifest
+    if not any(update_signing.verify(bytes.fromhex(key), message, signature) for key in trusted):
+        raise UpdateError('更新信息签名无效，可能被篡改。')
+    return manifest
+
+
 def _open(url, timeout=TIMEOUT):
     request = urllib.request.Request(url, headers={'User-Agent': 'SHSMUScheduleAssistant/' + APP_VERSION})
     response = urllib.request.urlopen(request, timeout=timeout)
@@ -149,24 +192,38 @@ def _open(url, timeout=TIMEOUT):
     return response
 
 
-def fetch_release(sources=None, platform=None, opener=_open):
-    """Return the newest published release, trying each manifest source in order."""
-    errors = []
+def fetch_release(sources=None, platform=None, opener=_open, current=APP_VERSION, trusted=TRUSTED_KEYS):
+    """Return the newest signed release, trying each manifest source in order.
+
+    Stops at the first release newer than `current`; otherwise asks every source,
+    so a stale mirror listed first cannot hide an update published elsewhere.
+    """
+    rejected, network, best = None, None, None
     for url in manifest_urls(sources):
         try:
             with opener(url) as response:
                 data = response.read(MANIFEST_LIMIT + 1)
             if len(data) > MANIFEST_LIMIT:
                 raise UpdateError('更新信息过大。')
-            return parse_manifest(data, platform)
+            release = parse_manifest(verified_manifest(data, trusted), platform)
         except UpdateError as error:
-            errors.append(str(error))
-            # A valid manifest that lacks this platform will not differ on the next host.
+            rejected = str(error)
+            # A signed manifest that lacks this platform will not differ on the next host.
             if '本系统' in str(error):
                 raise
+            continue
         except (OSError, ValueError) as error:
-            errors.append(type(error).__name__)
-    raise UpdateError('暂时无法连接更新服务器，请检查网络后再试。' + (f'（{errors[-1]}）' if errors else ''))
+            network = type(error).__name__
+            continue
+        if is_newer(release.version, current):
+            return release
+        if best is None or is_newer(release.version, best.version):
+            best = release
+    if best is not None:
+        return best
+    if rejected:  # A host answered with something unusable; say so rather than blame the network.
+        raise UpdateError(rejected + '请稍后再试，或从发布页手动下载新版。')
+    raise UpdateError('暂时无法连接更新服务器，请检查网络后再试。' + (f'（{network}）' if network else ''))
 
 
 def download(release, folder, *, sources=None, progress=None, cancelled=None, opener=_open):

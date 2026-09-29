@@ -1,6 +1,7 @@
 """Assemble allowlisted, matching native builds; do not publish anything."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -10,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from diagnostics import APP_VERSION
 from package_desktop import combine
-from updater import WINDOWS_EXE, build_manifest, bundled_collector_revision
+from updater import SIGNED_MANIFEST, WINDOWS_EXE, build_manifest, bundled_collector_revision, sign_manifest
 
 
 def update_notes(limit=600):
@@ -20,7 +21,19 @@ def update_notes(limit=600):
     return paragraph if len(paragraph) <= limit else paragraph[:limit - 1] + '…'
 
 
+def signing_key():
+    value = os.environ.get('UPDATE_SIGNING_KEY', '').strip()
+    try:
+        seed = bytes.fromhex(value)
+    except ValueError:
+        seed = b''
+    if len(seed) != 32:
+        raise SystemExit('UPDATE_SIGNING_KEY (64 hex characters) is required to sign the update manifest.')
+    return seed
+
+
 def main():
+    seed = signing_key()
     artifacts = ROOT / 'artifacts'
     reports = [json.loads((artifacts / platform / 'self-test.json').read_text(encoding='utf-8'))
                for platform in ('windows', 'macos')]
@@ -56,7 +69,9 @@ def main():
         'windows-x64': {'name': f'{prefix}-Windows-x64.zip', 'path': output / f'{prefix}-Windows-x64.zip',
                         'member': WINDOWS_EXE},
         'macos-arm64': {'name': mac_name, 'path': output / mac_name}})
-    (output / 'latest.json').write_text(json.dumps(update, ensure_ascii=False, indent=2), encoding='utf-8')
+    update_bytes = json.dumps(update, ensure_ascii=False, indent=2).encode('utf-8')
+    (output / 'latest.json').write_bytes(update_bytes)  # Unsigned, read by rc16 only.
+    (output / SIGNED_MANIFEST).write_bytes(sign_manifest(update_bytes, seed))
     for path in output.glob('*.zip'):
         with zipfile.ZipFile(path) as archive:
             assert archive.testzip() is None

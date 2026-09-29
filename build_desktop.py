@@ -22,7 +22,7 @@ MAC_INFO_PLIST = {'CFBundleShortVersionString': APP_VERSION.split('-')[0],
 BUILD_INPUTS = ('build_desktop.py', 'desktop.py', 'desktop_theme.py', 'desktop_service.py', 'desktop_smoke.py',
                 'desktop-macos.spec', 'package_desktop.py',
                 'platform_support.py', 'diagnostics.py', 'prepare.py', 'sync.py', 'source.py',
-                'core.py', 'wakeup.py', 'webcal.py', 'requirements.txt', 'requirements-build.txt',
+                'core.py', 'wakeup.py', 'webcal.py', 'updater.py', 'update_signing.py', 'requirements.txt', 'requirements-build.txt',
                 'config.example.json', *BROWSER_MODULES, 'assets/bookmark-install.png', '使用说明.html')
 
 
