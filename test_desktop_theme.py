@@ -328,6 +328,30 @@ class MedicalThemeTests(unittest.TestCase):
         self.assertGreater(self.ui.scroller.offset,0)
         self.assertLessEqual(top+last.winfo_height(),self.ui.scroller._metrics()[1])
 
+    def test_switching_settings_tab_redraws_its_fields_on_mac(self):
+        # Tk 8.6 Aqua (the packaged Mac runtime) showed a newly selected tab blank
+        # until the window was resized (BUG-011, 2026-09-30). Moving its fields by
+        # one pixel and back makes Aqua draw them.
+        self.ui.show_settings()
+        self.button('修改').invoke()
+        notebook=next(w for w in walk_widgets(self.ui.content) if isinstance(w,ttk.Notebook))
+        bound='_repaint_tab' in notebook.bind('<<NotebookTabChanged>>')
+        self.assertEqual(bound,sys.platform=='darwin')
+        notebook.select(1)
+        pane=notebook.nametowidget(notebook.select())
+        padding=lambda: [int(str(v)) for v in pane.tk.splitlist(pane.tk.call(pane,'cget','-padding'))]
+        self.ui._repaint_tab(type('Event',(),{'widget':notebook})())
+        self.assertEqual(padding(),[self.ui.px(16)+1])
+        deadline=time.monotonic()+2
+        while padding()!=[self.ui.px(16)] and time.monotonic()<deadline:
+            self.window.update()
+            time.sleep(0.005)
+        self.assertEqual(padding(),[self.ui.px(16)])
+        # Leaving the page before the restore runs must not raise.
+        self.ui._repaint_tab(type('Event',(),{'widget':notebook})())
+        self.ui.show_settings()
+        self.window.update()
+
     def test_busy_navigation_duplicate_start_and_after_cleanup(self):
         self.ui.service.save_settings({**self.ui.service.config(),'downloads_dir':str(self.root/'downloads')})
         (self.root/'downloads').mkdir()

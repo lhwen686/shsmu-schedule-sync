@@ -255,6 +255,12 @@ def self_test(report_path):
                 assert prefs.read_text(encoding='utf-8') == content
             assert not (root / 'missing-disk').exists()
             report['unavailable_data_root_blocked'] = True
+            # BUG-010: the Mac runtime found no CA roots, so update checks failed on
+            # student Macs. The release check runs this with OpenSSL's own paths hidden.
+            import updater
+            report['update_ca_certificates'] = updater.https_context().cert_store_stats()['x509_ca']
+            if sys.platform == 'darwin':
+                assert report['update_ca_certificates'] > 0, '更新检查找不到系统根证书'
             report.update(status='PASS', checks=['bundled resources', 'first-run and interrupted onboarding startup',
                 'existing JSON recovery offered on reopened setup',
                 'completed capture opens update home', 'local import and WakeUp CSV',

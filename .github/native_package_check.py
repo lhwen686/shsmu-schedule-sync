@@ -29,6 +29,11 @@ def main():
            if key not in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV')}
     env['PATH'] = ('/usr/bin:/bin:/usr/sbin:/sbin' if is_mac else
                    os.path.join(os.environ['SystemRoot'], 'System32'))
+    if is_mac:
+        # The runner has python.org's OpenSSL directory; student Macs do not (BUG-010).
+        env.pop('SSL_CERT_FILE', None)
+        env.pop('SSL_CERT_DIR', None)
+        env.update(SSL_CERT_FILE='/nonexistent/shsmu/cert.pem', SSL_CERT_DIR='/nonexistent/shsmu')
     with tempfile.TemporaryDirectory(prefix='课表 中文 空格 ') as temporary:
         root = Path(temporary).resolve()
         report_path = root / 'self-test.json'
@@ -39,6 +44,7 @@ def main():
         assert result.returncode == 0 and report['status'] == 'PASS', report
         assert report['frozen'] and not report['python_on_path'], report
         assert report['dependency_paths_in_bundle'] and report['bundled_bookmark_verified'], report
+        assert not is_mac or report['update_ca_certificates'] > 0, report
         assert report['app_version'] == APP_VERSION and report['collector_revision'] == '2026-09-29.19'
         if is_mac:
             mac_component(native, upload / 'mac-component.zip')

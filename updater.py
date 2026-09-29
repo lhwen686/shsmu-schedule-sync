@@ -17,6 +17,7 @@ import json
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -182,9 +183,37 @@ def verified_manifest(data, trusted=TRUSTED_KEYS):
     return manifest
 
 
+MACOS_CA_FILE = '/etc/ssl/cert.pem'
+CERTIFICATE_ERROR = ('无法验证更新服务器的安全证书，已停止。请确认电脑的日期和时间正确后再试；'
+                     '仍不行时请从发布页手动下载新版。')
+_https = None
+
+
+def https_context():
+    """Verified TLS context with the operating system's root certificates.
+
+    The packaged Mac runtime's OpenSSL looks for them only under python.org's
+    install prefix, which student Macs do not have, so every HTTPS request
+    failed (BUG-010). macOS ships its roots in /etc/ssl/cert.pem; add them.
+    Certificate and host-name verification stay on.
+    """
+    global _https
+    if _https is None:
+        context = ssl.create_default_context()
+        if sys.platform == 'darwin' and os.path.isfile(MACOS_CA_FILE):
+            context.load_verify_locations(cafile=MACOS_CA_FILE)
+        _https = context
+    return _https
+
+
+def certificate_failure(error):
+    reason = getattr(error, 'reason', error)
+    return isinstance(reason, ssl.SSLCertVerificationError)
+
+
 def _open(url, timeout=TIMEOUT):
     request = urllib.request.Request(url, headers={'User-Agent': 'SHSMUScheduleAssistant/' + APP_VERSION})
-    response = urllib.request.urlopen(request, timeout=timeout)
+    response = urllib.request.urlopen(request, timeout=timeout, context=https_context())
     # GitHub redirects to its download CDN; never follow a downgrade to plain HTTP.
     if not response.geturl().startswith('https://'):
         response.close()
@@ -213,7 +242,7 @@ def fetch_release(sources=None, platform=None, opener=_open, current=APP_VERSION
                 raise
             continue
         except (OSError, ValueError) as error:
-            network = type(error).__name__
+            network = CERTIFICATE_ERROR if certificate_failure(error) else network or type(error).__name__
             continue
         if is_newer(release.version, current):
             return release
@@ -223,6 +252,8 @@ def fetch_release(sources=None, platform=None, opener=_open, current=APP_VERSION
         return best
     if rejected:  # A host answered with something unusable; say so rather than blame the network.
         raise UpdateError(rejected + '请稍后再试，或从发布页手动下载新版。')
+    if network == CERTIFICATE_ERROR:
+        raise UpdateError(CERTIFICATE_ERROR)
     raise UpdateError('暂时无法连接更新服务器，请检查网络后再试。' + (f'（{network}）' if network else ''))
 
 
@@ -261,6 +292,8 @@ def download(release, folder, *, sources=None, progress=None, cancelled=None, op
             partial.unlink(missing_ok=True)
     if isinstance(last_error, UpdateError):
         raise last_error
+    if certificate_failure(last_error):
+        raise UpdateError(CERTIFICATE_ERROR)
     raise UpdateError('下载失败，请检查网络后再试。')
 
 

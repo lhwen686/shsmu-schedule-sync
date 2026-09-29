@@ -1,5 +1,29 @@
 # 验证与修复记录
 
+<a id="mac-update-tls-tabs-20260930"></a>
+## MAC-UPDATE-TLS-TABS-20260930：Mac 更新证书（BUG-010）与设置页标签空白（BUG-011）（未发布）
+
+2026-09-30，用户要求把 rc18 Mac 未测部分实测，并解决所有非本人操作的问题。基线公开 main `68e73f7729e5c8c9bb21aa92b6740d1b8d1f9144`（rc18 源码，main 在 tag 之后仅改验收文档），分支 `fix/mac-update-tls-and-tabs`，无既有未提交改动。本机：Apple 芯片、macOS 27.0，未安装 python.org Python。
+
+**BUG-010 Mac 应用内更新全部失败。** 实机：rc17、rc18 APP（Tk 8.6.16、python.org 3.12.10 构建）启动后自动检查静默失败，诊断事件 `update_check_failed`；键盘触发“检查更新”弹出“暂时无法连接更新服务器，请检查网络后再试。（URLError）”。同机网络正常：源码 `updater` 分别经 COS、GitHub 读取签名清单并下载 rc18 Mac ZIP，均与附件 SHA-256 一致。根因：包内 `libcrypto` 的 `OPENSSLDIR` 为 `/Library/Frameworks/Python.framework/Versions/3.12/etc/openssl`，学生 Mac 没有该目录，APP 也不带 `certifi`，证书校验必然失败；发布机装有 python.org Python，所以冻结自检和发布门禁都没发现。对照：同一 rc17 仅加 `SSL_CERT_FILE=/etc/ssl/cert.pem` 启动即记录 `update_available`，确认后下载到“下载”文件夹，文件与 rc18 附件逐字节相同。源码复现：`SSL_CERT_FILE`/`SSL_CERT_DIR` 指向不存在路径后，`fetch_release()` 给出与 APP 相同的错误。
+
+修复：`updater.https_context()` 在 macOS 额外加载系统自带的 `/etc/ssl/cert.pem`，证书与主机名校验保持开启；证书失败单独提示“无法验证更新服务器的安全证书……”，不再误导为网络问题。冻结自检记录 `update_ca_certificates`，Mac 为 0 时失败；`native_package_check` 在 Mac 上隐藏 OpenSSL 默认路径后运行自检，模拟学生 Mac。新增 `macos-checks.yml`：每个 PR 在 macOS 15、Python 3.12.10 上跑完整检查、原生构建和包检查，不发布。改后同条件读取到 rc18；expired / wrong.host / self-signed 测试站仍被拒绝。rc17、rc18 的 Mac 用户需手动下载修复版一次。
+
+**BUG-011 设置页标签切换后内容空白（rc17 已存在）。** 实机：rc18 用键盘切换“作息时间 / 文件夹 / 学期”后标签内容整块空白，调整窗口大小才显示；rc17 同样按键既跳动也空白。源码在 Tk 8.6.14（uv Python 3.12.10）以真实按键复现；仅含 `ttk.Notebook` 的最小窗口同样空白，Tk 9.0.4 不空白，排除卡片 Canvas 与滚动容器。结论为 Tk 8.6 Aqua 映射新标签页时不绘制其子控件。修复：Mac 上 `<<NotebookTabChanged>>` 时把选中页内边距临时加 1 像素、下一轮恢复固定值，促使 Aqua 重绘；改后同条件多次往返切换均正常显示，页面不跳动。
+
+**顺带修正。** 更新提示不再写“点击‘是’”：Mac Tk 8.6 的对话框按钮与应用菜单固定为英文（Info.plist 声明中文本地化无效，已在测试壳中验证），改为“确认后……”。对话框居中于助手窗口（原先落在屏幕左上角，更新进度窗口与主窗口重叠）。Tk 8.6 下以伪造版本和假下载走完 Mac 更新界面：进度窗口、访达定位与“新版本已下载”说明均正常；此前在真实 APP 上未看到后两者，属本机桌面状态问题，不是程序缺陷。Mac 说明补充：助手下载的 ZIP 已核对签名与哈希，替换后通常可直接打开。
+
+| 检查 | 结果 |
+| --- | --- |
+| 本机完整检查（Python 3.12.14 / Tk 9.0.4） | `check.py` 退出 0：279 项，278 PASS、1 Windows CMD SKIP；三组 JS PASS |
+| 新增回归 | `test_updater`：Mac 无默认路径仍载入系统根证书、上下文校验开启且复用、证书失败提示（检查与下载）、`_open` 使用该上下文；`test_desktop_theme`：Mac 绑定标签重绘、内边距恢复、离开页面不报错 |
+| 源码冻结前自检 | PASS，`update_ca_certificates` = 128 |
+| Tk 8.6 实机窗口（测试壳） | 标签切换 PASS；Mac 更新界面流程 PASS（伪造版本与下载，未联网） |
+| Mac 原生构建与冻结自检（Tk 8.6.16） | 由 `macos-checks.yml` 在 PR 上运行，结果见 PR |
+| 学校采集、手机导入、鼠标点击标签 | NOT RUN（需本人；本机桌面拦截鼠标点击） |
+
+回滚：还原本分支提交即可，不涉及数据格式、UID 或书签；书签仍为 `2026-09-29.19`。
+
 <a id="release-rc16"></a>
 ## RELEASE-RC16：应用内更新、界面改版与逐条读取双平台附件
 
