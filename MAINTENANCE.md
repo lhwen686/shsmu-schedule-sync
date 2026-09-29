@@ -109,7 +109,7 @@ CLI 退出码：0 成功；2 数据/访问检查失败；3 需重新认证；4 �
 
 构建脚本只生成 `dist/医学院课表助手.exe`、独立 HTML 和 EXE 校验文件；版本目录、ZIP 和所有下载附件的校验记录需单独整理核对，不能假定构建命令已经生成完整 Release。保留旧交付，不覆盖已分发的同版本附件；确需同版本说明修订时另存产物并记录修订日期及新哈希。
 
-应用内更新（[updater.py](updater.py)）：发布工作流由 `assemble_release.py` 生成只含版本、文件名、大小和 SHA-256 的 `latest.json`，附件回下载校验通过后上传到 GitHub `update-channel` 预发布（请勿删除）。助手启动时检查，用户确认后 Windows 下载校验并替换 EXE 后重启，Mac 只下载 ZIP 由用户替换。下载地址默认是 GitHub Releases；如需更换或增加（如代理地址），在仓库 Actions 变量设置 `UPDATE_MANIFEST_URLS`（`latest.json` 地址）和/或 `UPDATE_FILE_URLS`（安装包地址模板，含 `{version}`、`{name}`），每行一个 HTTPS 地址，按顺序尝试；构建时写入被忽略的 `update_sources.py`，未设置或无效时使用默认值。本地构建可手动创建同名文件，格式为 `SOURCES = {'manifest': (...), 'files': (...)}`。
+应用内更新（[updater.py](updater.py)）：发布工作流由 `assemble_release.py` 生成只含版本、文件名、大小和 SHA-256 的 `latest.json`，再用 Secrets 中的 `UPDATE_SIGNING_KEY` 生成 Ed25519 签名的 `latest-signed.json`（[update_signing.py](update_signing.py)），附件回下载校验通过后两者一起上传到 GitHub `update-channel` 预发布（请勿删除）。rc17 起程序只读取签名清单，签名须来自 `updater.TRUSTED_KEYS` 中的发布密钥或离线备份密钥；因此清单和安装包都可放在不受信任的镜像。发布密钥泄露或丢失时，先用备份密钥签发一个更换了 `TRUSTED_KEYS` 的版本。新密钥用 `python update_signing.py keygen local/update-signing/<名称>.txt` 生成，私钥不得提交或打印到日志。助手启动时检查，用户确认后 Windows 下载校验并替换 EXE 后重启，Mac 只下载 ZIP 由用户替换。下载地址默认是 GitHub Releases；如需更换或增加（如代理地址），在仓库 Actions 变量设置 `UPDATE_MANIFEST_URLS`（`latest-signed.json` 地址）和/或 `UPDATE_FILE_URLS`（安装包地址模板，含 `{version}`、`{name}`），每行一个 HTTPS 地址，按顺序尝试；构建时写入被忽略的 `update_sources.py`，未设置或无效时使用默认值。本地构建可手动创建同名文件，格式为 `SOURCES = {'manifest': (...), 'files': (...)}`。
 
 最终 EXE 的维护入口为 `医学院课表助手.exe --self-test "报告绝对路径.json"`。同时核对报告状态和进程退出码；它只用隔离合成数据，不能代替学校、手机、另一台电脑或真实浏览器验收。
 
