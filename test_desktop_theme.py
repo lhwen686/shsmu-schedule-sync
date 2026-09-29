@@ -347,10 +347,16 @@ class MedicalThemeTests(unittest.TestCase):
             self.window.update()
             time.sleep(0.005)
         self.assertEqual(padding(),[self.ui.px(16)])
-        # Leaving the page before the restore runs must not raise.
-        self.ui._repaint_tab(type('Event',(),{'widget':notebook})())
-        self.ui.show_settings()
-        self.window.update()
+        # Leaving the page before the restore runs must not touch the old pane. (Tearing the
+        # page down here instead hangs Tk 8.6's update() in a test process's second Tk().)
+        with patch.object(self.ui,'later') as later:
+            self.ui._repaint_tab(type('Event',(),{'widget':notebook})())
+        restore=later.call_args.args[1]
+        with patch.object(pane,'winfo_exists',return_value=False), patch.object(pane,'configure') as configure:
+            restore()
+        configure.assert_not_called()
+        restore()
+        self.assertEqual(padding(),[self.ui.px(16)])
 
     def test_busy_navigation_duplicate_start_and_after_cleanup(self):
         self.ui.service.save_settings({**self.ui.service.config(),'downloads_dir':str(self.root/'downloads')})
