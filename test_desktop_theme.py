@@ -298,6 +298,26 @@ class MedicalThemeTests(unittest.TestCase):
         self.assertEqual(normal.split()[:2],[str(self.ui.px(18)),str(self.ui.px(9))])
         # The pages differ in height, so compare the tab style, not the notebook.
 
+    def test_clicking_a_settings_tab_neither_scrolls_nor_selects_a_field(self):
+        # Tk moves focus into the new tab's first entry (selecting its text), and
+        # scrolling focus into view then jumped the page (reported 2026-09-29).
+        self.window.deiconify()
+        self.window.geometry('900x420')
+        self.ui.show_settings()
+        self.button('修改').invoke()
+        notebook=next(w for w in walk_widgets(self.ui.content) if isinstance(w,ttk.Notebook))
+        self.window.update()
+        offset=self.ui.scroller.offset
+        y=self.ui.px(12)
+        for index in (1,2,0):
+            x=next(x for x in range(notebook.winfo_width()) if notebook.index(f'@{x},{y}')==index)
+            notebook.event_generate('<ButtonPress-1>',x=x+2,y=y)
+            notebook.event_generate('<ButtonRelease-1>',x=x+2,y=y)
+            self.window.update()
+            self.assertEqual(notebook.index('current'),index)
+            self.assertNotIsInstance(self.window.focus_get(),ttk.Entry)
+            self.assertEqual(self.ui.scroller.offset,offset)
+
     def test_busy_navigation_duplicate_start_and_after_cleanup(self):
         self.ui.service.save_settings({**self.ui.service.config(),'downloads_dir':str(self.root/'downloads')})
         (self.root/'downloads').mkdir()

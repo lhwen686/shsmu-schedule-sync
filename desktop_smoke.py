@@ -275,7 +275,7 @@ def self_test(report_path):
                     from platform_support import MAC_PACKAGE_LABEL
                     info = plistlib.loads((Path(sys.executable).parent.parent / 'Info.plist').read_bytes())
                     assert info['CFBundleShortVersionString'] == '1.0.0'
-                    assert info['CFBundleVersion'] == '17.0'
+                    assert info['CFBundleVersion'] == '18.0'
                     assert info['LSMinimumSystemVersion'] == '11.0'
                     assert MAC_PACKAGE_LABEL in info['NSAboutPanelOptionVersion']
                     report['mac_bundle_metadata'] = True

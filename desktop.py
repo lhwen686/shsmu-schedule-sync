@@ -365,8 +365,8 @@ class AssistantWindow:
         widget = event.widget
         if not hasattr(self, 'content') or self.disposed or widget.winfo_toplevel() != self.window:
             return
-        if not str(widget).startswith(str(self.content) + '.'):
-            return
+        if not str(widget).startswith(str(self.content) + '.') or isinstance(widget, ttk.Notebook):
+            return  # A focused notebook's tabs were just clicked; scrolling the whole container only jumps.
         self.window.update_idletasks()
         # Leave one scroll increment around keyboard focus.
         self.scroller.ensure_visible(widget, self.px(24))
@@ -1380,6 +1380,9 @@ class AssistantWindow:
         body = self.card(padding=12)
         notebook = ttk.Notebook(body)
         notebook.pack(fill='both', expand=True)
+        # Tk moves focus into a clicked tab's first entry and selects its text,
+        # which also scrolled the page; with focus on the tabs it only switches.
+        notebook.bind('<ButtonPress-1>', lambda event: event.widget.focus_set(), add='+')
         term_tab, times_tab, storage_tab = [ttk.Frame(notebook, style='Card.TFrame', padding=self.px(16)) for _ in range(3)]
         for tab, text in [(term_tab, '学期'), (times_tab, '作息时间'), (storage_tab, '文件夹')]:
             notebook.add(tab, text=text)
