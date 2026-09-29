@@ -25,7 +25,10 @@ export AWS_REQUEST_CHECKSUM_CALCULATION=when_required AWS_RESPONSE_CHECKSUM_VALI
 AWS_CONFIG_FILE=$(mktemp)
 export AWS_CONFIG_FILE
 printf '[default]\ns3 =\n    addressing_style = virtual\n    multipart_threshold = 100MB\n    max_concurrent_requests = 1\n' > "$AWS_CONFIG_FILE"
-endpoint="https://cos.$COS_REGION.myqcloud.com"
+# Upload through COS global acceleration (enabled on the bucket): a direct
+# upload from GitHub's US runners to Shanghai did not finish 45 MB in 10 min.
+# Students still download from the regional domain below.
+endpoint="https://cos.accelerate.myqcloud.com"
 public="https://$COS_BUCKET.cos.$COS_REGION.myqcloud.com"
 
 upload() {  # <file> <key> [extra aws args]

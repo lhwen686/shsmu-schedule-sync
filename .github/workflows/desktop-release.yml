@@ -120,7 +120,7 @@ jobs:
     needs: assemble
     if: github.repository == 'lhwen686/shsmu-schedule-sync' && github.ref == 'refs/heads/codex/release-rc16'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 40
     permissions:
       contents: write
     steps:
