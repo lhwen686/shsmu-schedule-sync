@@ -19,6 +19,10 @@ root=${3:-releases}
 export AWS_ACCESS_KEY_ID=$COS_SECRET_ID AWS_SECRET_ACCESS_KEY=$COS_SECRET_KEY AWS_DEFAULT_REGION=$COS_REGION
 # COS rejects the CRC checksums newer AWS CLIs add by default.
 export AWS_REQUEST_CHECKSUM_CALCULATION=when_required AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
+# COS refuses path-style requests; address the bucket as <bucket>.cos.<region>.
+AWS_CONFIG_FILE=$(mktemp)
+export AWS_CONFIG_FILE
+printf '[default]\ns3 =\n    addressing_style = virtual\n' > "$AWS_CONFIG_FILE"
 endpoint="https://cos.$COS_REGION.myqcloud.com"
 public="https://$COS_BUCKET.cos.$COS_REGION.myqcloud.com"
 
