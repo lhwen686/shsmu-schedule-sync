@@ -1,0 +1,45 @@
+name: Check Tencent COS mirror upload
+
+# Uploads a small probe under releases/mirror-check/ with the release
+# credentials and reads it back anonymously. It never touches the real
+# update channel. Run by hand after changing COS keys, bucket or policy.
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/cos-mirror']
+    paths: ['.github/publish_cos.sh', '.github/workflows/cos-mirror-check.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: github.repository == 'lhwen686/shsmu-schedule-sync'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Upload and anonymously read back a probe
+        env:
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+          COS_BUCKET: ${{ vars.COS_BUCKET }}
+          COS_REGION: ${{ vars.COS_REGION }}
+        run: |
+          mkdir probe
+          echo "mirror check $GITHUB_RUN_ID" > probe/probe.txt
+          head -c 45000000 /dev/urandom > probe/package.bin  # As large as the combined release ZIP.
+          echo '{"probe": true}' > probe/latest-signed.json
+          bash .github/publish_cos.sh probe "0.0.0-run$GITHUB_RUN_ID" releases/mirror-check
+      - name: Confirm anonymous listing, writing and reading outside releases/ are refused
+        env:
+          COS_BUCKET: ${{ vars.COS_BUCKET }}
+          COS_REGION: ${{ vars.COS_REGION }}
+        run: |
+          public="https://$COS_BUCKET.cos.$COS_REGION.myqcloud.com"
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$public/")" = 403
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$public/elsewhere.txt")" = 403
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X PUT --data x "$public/releases/anonymous.txt")" = 403
+          echo 'PASS: anonymous list, write and outside reads refused'

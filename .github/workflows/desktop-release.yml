@@ -120,7 +120,7 @@ jobs:
     needs: assemble
     if: github.repository == 'lhwen686/shsmu-schedule-sync' && github.ref == 'refs/heads/codex/release-rc16'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 40
     permissions:
       contents: write
     steps:
@@ -168,3 +168,14 @@ jobs:
             --prerelease --title "自动更新通道（请勿删除）" \
             --notes "助手内“检查更新”读取本页的 latest.json。安装包请到各版本发布页下载。"
           gh release upload update-channel release-assets/latest.json release-assets/latest-signed.json --clobber
+      # After GitHub, so a COS failure never blocks GitHub users. Apps try COS
+      # first; a stale COS channel is skipped because they then ask GitHub too.
+      - name: Mirror downloads and the signed update channel to Tencent COS
+        env:
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+          COS_BUCKET: ${{ vars.COS_BUCKET }}
+          COS_REGION: ${{ vars.COS_REGION }}
+        run: |
+          version=$(python3 -c "import json; print(json.load(open('release-assets/latest.json'))['version'])")
+          bash .github/publish_cos.sh release-assets "$version"
