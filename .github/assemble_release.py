@@ -70,7 +70,7 @@ def main():
                         'member': WINDOWS_EXE},
         'macos-arm64': {'name': mac_name, 'path': output / mac_name}})
     update_bytes = json.dumps(update, ensure_ascii=False, indent=2).encode('utf-8')
-    (output / 'latest.json').write_bytes(update_bytes)  # Unsigned, read by rc16 only.
+    (output / 'latest.json').write_bytes(update_bytes)  # Unsigned, read by rc16, which predates signing.
     (output / SIGNED_MANIFEST).write_bytes(sign_manifest(update_bytes, seed))
     for path in output.glob('*.zip'):
         with zipfile.ZipFile(path) as archive:

@@ -1,8 +1,8 @@
-name: Build and publish rc16 desktop packages
+name: Build and publish rc17 desktop packages
 
 on:
   push:
-    branches: ['codex/release-rc16']
+    branches: ['codex/release-rc17']
 
 permissions:
   contents: read
@@ -17,7 +17,7 @@ env:
   GIT_CONFIG_VALUE_1: lf
 
 concurrency:
-  group: desktop-rc16-release
+  group: desktop-rc17-release
   cancel-in-progress: false
 
 jobs:
@@ -77,7 +77,7 @@ jobs:
       - name: Upload verified native component
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ${{ matrix.platform }}-rc16
+          name: ${{ matrix.platform }}-rc17
           path: dist/upload/
           if-no-files-found: error
           retention-days: 14
@@ -97,11 +97,11 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: windows-rc16
+          name: windows-rc17
           path: artifacts/windows
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: macos-rc16
+          name: macos-rc17
           path: artifacts/macos
       - name: Compare source manifests and bookmark bytes, create ZIPs, checksums and signed manifest
         env:
@@ -110,7 +110,7 @@ jobs:
       - name: Upload reviewed release assets
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: rc16-release-assets
+          name: rc17-release-assets
           path: dist/release/
           if-no-files-found: error
           retention-days: 30
@@ -118,7 +118,7 @@ jobs:
   publish:
     name: Publish new candidate after both native checks pass
     needs: assemble
-    if: github.repository == 'lhwen686/shsmu-schedule-sync' && github.ref == 'refs/heads/codex/release-rc16'
+    if: github.repository == 'lhwen686/shsmu-schedule-sync' && github.ref == 'refs/heads/codex/release-rc17'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -129,7 +129,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: rc16-release-assets
+          name: rc17-release-assets
           path: release-assets
       - name: Verify every downloaded asset
         working-directory: release-assets
@@ -140,16 +140,16 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
-          gh release create v1.0.0-rc16 release-assets/* \
+          gh release create v1.0.0-rc17 release-assets/* \
             --target "$RELEASE_COMMIT" --prerelease \
-            --title "医学院课表助手 rc16 · 应用内更新、界面刷新与逐条读取" \
+            --title "医学院课表助手 rc17 · 国内更新下载、更新清单签名与标签页修复" \
             --notes-file RELEASE_NOTES.md
       - name: Verify published asset names and exact bytes
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release download v1.0.0-rc16 --dir published-assets
+          gh release download v1.0.0-rc17 --dir published-assets
           python - <<'PY'
           from pathlib import Path
           expected = Path('release-assets')

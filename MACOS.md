@@ -2,9 +2,9 @@
 
 ## 独立 Mac 应用
 
-当前候选版为 **1.0.0-rc16 · Mac 修订 10**，仅面向 Apple 芯片（M 系列）Mac。
+当前候选版为 **1.0.0-rc17 · Mac 修订 11**，仅面向 Apple 芯片（M 系列）Mac。
 程序内置运行环境，使用 APP 不需要安装 Python。正式签名和 Apple 公证尚未完成。
-本次状态见 [rc16 验收](STUDENT_ACCEPTANCE.md#acceptance-rc16)；学校与手机实机验收尚未进行。
+本次状态见 [rc17 验收](STUDENT_ACCEPTANCE.md#acceptance-rc17)；学校与手机实机验收尚未进行。
 助手左下角“检查更新”发现新版后，会把校验过的 ZIP 下载到“下载”文件夹，再按提示手动替换 APP。
 Windows 与 Mac 软件从同一份源码分别构建；旧修订包仍保留，不与新版混合合包。
 
@@ -13,7 +13,7 @@ Windows 与 Mac 软件从同一份源码分别构建；旧修订包仍保留，�
    [Apple 官方说明](https://support.apple.com/zh-cn/102445)在“系统设置 → 隐私与安全性”
    为该应用选择“仍要打开”。若提示损坏或将损坏电脑，停止打开并联系维护者。
 3. 阅读包内 `使用说明.html`，在平时正常登录教务的浏览器中安装课表书签。
-   Safari 使用下方引导；rc16 两端均生成 `.19` 新版书签。
+   Safari 使用下方引导；rc17 两端均生成 `.19` 书签（与 rc16 相同）。
    已有完整 JSON 时可直接点“选择已下载的课表”，无需重新采集。
 
 拒绝下载文件夹权限后，可手动选择完整 JSON，或在助手中选择其他可读的下载文件夹。
@@ -37,7 +37,7 @@ Safari `.11` 的学校实采历史单独记在 [Safari 验收](STUDENT_ACCEPTANC
 
 ## Safari 课表按钮
 
-rc16 软件生成的采集按钮版本为 `2026-09-29.19`。更新软件后，请在实际采集的
+rc17 软件生成的采集按钮版本为 `2026-09-29.19`。更新软件后，请在实际采集的
 浏览器中手动替换一次旧书签；软件更新不会自动修改浏览器已经保存的按钮。
 
 1. 在 Safari 打开新版安装页。输入本地文件地址后若出现“确认要载入的文件”，
@@ -120,8 +120,8 @@ Mac 会明确跳过 Windows CMD 场景。分支配置了 GitHub Windows runner �
 在已有构建环境的 Apple 芯片 Mac 上执行：
 
 ```sh
-python -X utf8 build_desktop.py --output-dir dist/mac-rc16 --work-dir build/mac-rc16
-python -X utf8 package_desktop.py --mac-dir dist/mac-rc16 --mac-only --output dist/mac-rc16.zip
+python -X utf8 build_desktop.py --output-dir dist/mac-rc17 --work-dir build/mac-rc17
+python -X utf8 package_desktop.py --mac-dir dist/mac-rc17 --mac-only --output dist/mac-rc17.zip
 ```
 
 构建使用仓库内的 Mac spec，在签名前写入版本与系统声明，并检查全部包内原生二进制的

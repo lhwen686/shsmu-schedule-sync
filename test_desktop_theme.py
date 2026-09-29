@@ -289,6 +289,24 @@ class MedicalThemeTests(unittest.TestCase):
         self.assertEqual(len([w for w in walk_widgets(notebook) if isinstance(w,ttk.Entry)]),33)
         self.assertFalse(self.button('保存设置').instate(['disabled']))
 
+    def test_selecting_a_settings_tab_keeps_every_tab_the_same_size(self):
+        # clam maps a selected tab to padding '6 4 6 2', so clicking a tab shrank
+        # it and shifted its label and neighbours (reported 2026-09-29).
+        style=ttk.Style(self.window)
+        normal=str(style.lookup('TNotebook.Tab','padding'))
+        self.assertEqual(str(style.lookup('TNotebook.Tab','padding',['selected'])),normal)
+        self.assertEqual(normal.split()[:2],[str(self.ui.px(18)),str(self.ui.px(9))])
+        self.ui.show_settings()
+        self.button('修改').invoke()
+        notebook=next(w for w in walk_widgets(self.ui.content) if isinstance(w,ttk.Notebook))
+        self.window.deiconify()
+        heights=[]
+        for index in range(len(notebook.tabs())):
+            notebook.select(index)
+            self.window.update()
+            heights.append(notebook.winfo_reqheight())
+        self.assertEqual(len(set(heights)),1,heights)
+
     def test_busy_navigation_duplicate_start_and_after_cleanup(self):
         self.ui.service.save_settings({**self.ui.service.config(),'downloads_dir':str(self.root/'downloads')})
         (self.root/'downloads').mkdir()

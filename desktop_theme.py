@@ -266,10 +266,13 @@ class Theme:
             (check, {'side': 'left', 'sticky': 'w'}),
             ('Checkbutton.focus', {'side': 'left', 'sticky': 'w', 'children': [('Checkbutton.label', {'sticky': 'w'})]})]})])
         s.configure('TNotebook', background=SURFACE, borderwidth=0, tabmargins=0)
-        s.configure('TNotebook.Tab', padding=(self.px(18), self.px(9)), background=PAGE,
+        tab_padding = (self.px(18), self.px(9))
+        s.configure('TNotebook.Tab', padding=tab_padding, background=PAGE,
                     foreground=MUTED, bordercolor=LINE, lightcolor=PAGE)
+        # clam maps a selected tab to its own tiny padding; keep ours so clicking a
+        # tab does not shrink it and shift its label and neighbours.
         s.map('TNotebook.Tab', background=[('selected', SURFACE)], foreground=[('selected', ACCENT)],
-              lightcolor=[('selected', SURFACE)])
+              lightcolor=[('selected', SURFACE)], padding=[('selected', tab_padding)])
         self.table_font = tkfont.Font(root=self.window, family=self.family, size=-self.px(12))
         s.configure('Treeview', font=self.table_font, rowheight=self.table_font.metrics('linespace') + self.px(10),
                     background=SURFACE, fieldbackground=SURFACE, bordercolor=LINE, lightcolor=LINE, darkcolor=LINE)
