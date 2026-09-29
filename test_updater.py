@@ -3,10 +3,15 @@ import dataclasses
 import hashlib
 import io
 import json
+import os
+import ssl
+import sys
 import tempfile
 import unittest
+import urllib.error
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 import update_signing
 import updater
@@ -122,6 +127,14 @@ class ManifestTest(unittest.TestCase):
         with self.assertRaisesRegex(updater.UpdateError, '无法连接'):
             updater.fetch_release([], 'windows-x64', opener_for({}))
 
+    def test_certificate_failure_is_not_reported_as_a_network_problem(self):
+        # BUG-010: the packaged Mac app had no CA roots; students were told to check their network.
+        rejected = urllib.error.URLError(ssl.SSLCertVerificationError(1, 'certificate verify failed'))
+        opener = opener_for({url: rejected for url in updater.manifest_urls()})
+        with self.assertRaises(updater.UpdateError) as caught:
+            updater.fetch_release(None, 'macos-arm64', opener)
+        self.assertEqual(str(caught.exception), updater.CERTIFICATE_ERROR)
+
     def manifest_for(self, version):
         return json.dumps(dict(self.manifest, version=version)).encode()
 
@@ -170,12 +183,14 @@ class ManifestTest(unittest.TestCase):
     def test_https_downgrade_is_refused(self):
         response = FakeResponse(b'{}', url='http://downgraded.test/latest.json')
         original = updater.urllib.request.urlopen
-        updater.urllib.request.urlopen = lambda request, timeout=None: response
+        contexts = []
+        updater.urllib.request.urlopen = lambda request, timeout=None, context=None: contexts.append(context) or response
         try:
             with self.assertRaisesRegex(updater.UpdateError, 'HTTPS'):
                 updater._open('https://mirror.test/latest.json')
         finally:
             updater.urllib.request.urlopen = original
+        self.assertEqual(contexts, [updater.https_context()])
 
 
 class DownloadTest(unittest.TestCase):
@@ -202,11 +217,42 @@ class DownloadTest(unittest.TestCase):
             updater.download(self.release, self.folder, sources=self.sources, opener=opener)
         self.assertEqual(list(self.folder.iterdir()), [])
 
+    def test_certificate_failure_while_downloading_is_named(self):
+        rejected = urllib.error.URLError(ssl.SSLCertVerificationError(1, 'certificate verify failed'))
+        opener = opener_for({url: rejected for url in self.urls})
+        with self.assertRaises(updater.UpdateError) as caught:
+            updater.download(self.release, self.folder, sources=self.sources, opener=opener)
+        self.assertEqual(str(caught.exception), updater.CERTIFICATE_ERROR)
+        self.assertEqual(list(self.folder.iterdir()), [])
+
     def test_cancel_leaves_nothing(self):
         opener = opener_for({self.urls[1]: self.payload})
         with self.assertRaises(updater.UpdateCancelled):
             updater.download(self.release, self.folder, sources=updater.DEFAULT_SOURCES, cancelled=lambda: True, opener=opener)
         self.assertEqual(list(self.folder.iterdir()), [])
+
+
+class TlsTest(unittest.TestCase):
+    def setUp(self):
+        self.addCleanup(setattr, updater, '_https', updater._https)
+        updater._https = None
+
+    @unittest.skipUnless(sys.platform == 'darwin' and os.path.isfile(updater.MACOS_CA_FILE), 'macOS root store')
+    def test_mac_context_has_system_roots_without_python_org_paths(self):
+        # BUG-010: a student Mac lacks python.org's OpenSSL directory, so the packaged
+        # app found no CA roots at all. Point OpenSSL's own lookups nowhere to match.
+        with patch.dict(os.environ, {'SSL_CERT_FILE': '/nonexistent/cert.pem', 'SSL_CERT_DIR': '/nonexistent'}):
+            self.assertEqual(ssl.get_default_verify_paths()[:2], (None, None))
+            context = updater.https_context()
+        self.assertGreater(context.cert_store_stats()['x509_ca'], 0)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(context.check_hostname)
+
+    def test_context_is_verified_and_reused(self):
+        context = updater.https_context()
+        self.assertIs(updater.https_context(), context)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(context.check_hostname)
 
 
 class InstallTest(unittest.TestCase):

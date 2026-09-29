@@ -10,7 +10,9 @@
 | 双平台完整检查、原生构建、冻结自检、附件与 COS 回读 | PASS：[发布工作流](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36588324085)（首次运行 Mac 由新测试发现仅靠 `focus_set` 仍会滚动，未发布；找到祖先 FocusIn 根因后重跑通过） |
 | rc17 → rc18 实际自动更新（经 COS 下载、Windows 替换重启） | PASS：rc17 “检查更新”提示 rc18，确认后约 8 秒完成下载、替换与重启（rc16 经 GitHub 约 1 分钟）；新 EXE 哈希等于清单 `member_sha256`，`.old` 已清理；检查与下载时本机分别连接 COS 上海 `43.137.131.22:443` |
 | 设置页标签切换不跳动（实机窗口） | PASS：rc18 窗口依次切换三个标签，页面标题位置不变、标签大小不变、输入框文字不再被选中 |
-| Mac 下载更新、学校采集、手机导入 | NOT RUN；本版未改采集与导出 |
+| Mac 下载更新（2026-09-29 本机 Apple 芯片 macOS 27.0，未装 python.org Python） | FAIL（BUG-010）：rc17、rc18 启动后的自动检查静默失败（诊断 `update_check_failed`），手动“检查更新”提示“暂时无法连接更新服务器……（URLError）”。包内 OpenSSL 只在 python.org 安装目录找根证书；同一 rc17 仅设 `SSL_CERT_FILE=/etc/ssl/cert.pem` 即提示 rc18，确认后下载到“下载”文件夹，文件与 rc18 附件逐字节相同。修复见 [BUG-010/011](VERIFICATION.md#mac-update-tls-tabs-20260930) |
+| 设置页标签内容（Mac 实机键盘切换） | FAIL（BUG-011，rc17 已存在）：rc18 页面不再跳动，但切换后标签内容整块空白，调整窗口大小才显示；同样按键下 rc17 既跳动也空白。鼠标点击因本机桌面拦截点击 NOT RUN |
+| 学校采集、手机导入 | NOT RUN；本版未改采集与导出 |
 
 <a id="acceptance-rc17"></a>
 ## rc17 双平台候选版（2026-09-29）

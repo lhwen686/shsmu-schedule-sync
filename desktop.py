@@ -282,10 +282,11 @@ class AssistantWindow:
         if release.collector_revision and release.collector_revision != updater.bundled_collector_revision():
             bookmark = (f'\n\n本次更新包含新的课表书签（{release.collector_revision}）。'
                         '更新后请按助手提示重新安装书签，替换浏览器里的旧书签。')
+        # No button names: the Mac runtime labels this box Yes / No in English.
         if sys.platform == 'win32':
-            action = '点击“是”后自动下载，完成后助手会重新打开。'
+            action = '确认后自动下载，完成后助手会重新打开。'
         else:
-            action = '点击“是”后下载到“下载”文件夹，再按提示替换应用。'
+            action = '确认后下载到“下载”文件夹，再按提示替换应用。'
         if not messagebox.askyesno(f'发现新版本 {release.version}',
                                    f'当前版本：{APP_VERSION}\n新版本：{release.version}（约 {release.size_label}）\n\n'
                                    f'{notes}{bookmark}\n\n课表、设置和历史记录保存在单独的文件夹，更新不会影响它们。\n'
@@ -295,9 +296,7 @@ class AssistantWindow:
 
     def install_update(self, release):
         self.update_busy = True
-        dialog = self.dialog('正在更新', 480, 200)
-        dialog.minsize(1, 1)
-        dialog.geometry(f'{self.px(480)}x{self.px(200)}')
+        dialog = self.dialog('正在更新', 480, 200, minimum=(1, 1))
         dialog.grab_set()
         frame = tk.Frame(dialog, bg=BG)
         frame.pack(fill='both', expand=True, padx=self.px(24), pady=self.px(20))
@@ -352,6 +351,20 @@ class AssistantWindow:
                                     '2. 解压 ZIP，把 Mac 文件夹中的“医学院课表助手.app”拖入“应用程序”并选择替换。\n'
                                     '3. 重新打开助手。课表和设置会保留。', parent=self.window)
         self.background(work, done, tick)
+
+    def _repaint_tab(self, event):
+        # Tk 8.6 Aqua (the packaged Mac runtime) maps a newly selected tab without
+        # drawing its children, leaving it blank until the window is resized; Tk 9
+        # does not. Moving them by one pixel and back makes Aqua redraw them.
+        # Restore the fixed tab padding, not the current value: a second switch
+        # within the delay would otherwise keep the one-pixel offset.
+        padding = self.px(16)
+        try:
+            pane = event.widget.nametowidget(event.widget.select())
+            pane.configure(padding=padding + 1)
+        except (tk.TclError, KeyError):
+            return
+        self.later(1, lambda: pane.winfo_exists() and pane.configure(padding=padding))
 
     def bind_button(self, button):
         def invoke(event):
@@ -687,7 +700,7 @@ class AssistantWindow:
             if not reinstall:
                 self.recovery_row()
 
-    def dialog(self, title, width=720, height=530):
+    def dialog(self, title, width=720, height=530, minimum=(560, 440)):
         dialog = tk.Toplevel(self.window)
         dialog.title(title)
         dialog.configure(background=BG)
@@ -695,8 +708,12 @@ class AssistantWindow:
         dialog.transient(self.window)
         w = min(self.px(width),self.window.winfo_screenwidth()-self.px(40))
         h = min(self.px(height),self.window.winfo_screenheight()-self.px(80))
-        dialog.geometry(f'{w}x{h}')
-        dialog.minsize(min(self.px(560),w),min(self.px(440),h))
+        # Centre over the assistant; the window manager's default is its top-left corner.
+        self.window.update_idletasks()
+        x = self.window.winfo_rootx() + max(0, (self.window.winfo_width() - w) // 2)
+        y = self.window.winfo_rooty() + max(0, (self.window.winfo_height() - h) // 3)
+        dialog.geometry(f'{w}x{h}+{x}+{y}')
+        dialog.minsize(min(self.px(minimum[0]),w),min(self.px(minimum[1]),h))
         return dialog
 
     def show_bookmark_details(self):
@@ -1397,6 +1414,8 @@ class AssistantWindow:
         term_tab, times_tab, storage_tab = [ttk.Frame(notebook, style='Card.TFrame', padding=self.px(16)) for _ in range(3)]
         for tab, text in [(term_tab, '学期'), (times_tab, '作息时间'), (storage_tab, '文件夹')]:
             notebook.add(tab, text=text)
+        if sys.platform == 'darwin':
+            notebook.bind('<<NotebookTabChanged>>', self._repaint_tab, add='+')
         notebook.select(selected_tab)
         year, term = config['semester'].split(':')
         self.label('这里设置读取教务课表的日期范围，不是个人开课或结课日期。使用当前学期预设时通常无需修改。', 'small', (0, 14), parent=term_tab)
