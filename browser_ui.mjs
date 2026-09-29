@@ -1,6 +1,6 @@
 // Bundled with the capability check, transport and collector by prepare.py.
 export async function runBookmark(config) {
-  const revision = '2026-09-28.16';
+  const revision = '2026-09-29.19';
   if (location.origin !== 'https://jwstu.shsmu.edu.cn') {
     alert('请先在安装书签的浏览器中打开教务首页并登录，再点击“同步医学院课表”。\n教务首页：https://jwstu.shsmu.edu.cn/Home');
     return;
@@ -107,10 +107,7 @@ export async function runBookmark(config) {
   const metadata = () => ({schema_version:1, browser, request_log:trace, truncated,
     download_attempted:true, download_observed:false});
   const status = message => { stage = message; showMessage(visibleStage(message)); };
-  // At most three school reads overlap; the reader returns to one read with
-  // a 1 s gap after any failure. Observed detail replies take about 1.2 s.
-  const parallel = 3;
-  const read = createSchoolReader(location.origin, {concurrency:parallel, observe:entry => {
+  const read = createSchoolReader(location.origin, {observe:entry => {
     if (trace.length < 2000) trace.push(entry); else { truncated = true; trace[1999] = entry; }
     if (entry.state === 'retry')
       showMessage(visibleStage(stage) + '\n暂未收到响应，即将进行第 ' + (entry.attempt + 1) + '/3 次尝试…');
@@ -150,7 +147,6 @@ export async function runBookmark(config) {
     try {
       await collectSchedule(config, {
         status,
-        detailConcurrency:parallel,
         accountKey:async () => {
           status('读取教务首页显示的账号…');
           // The normal /Home document visibly contains the student label.

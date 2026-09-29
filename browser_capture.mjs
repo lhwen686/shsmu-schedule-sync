@@ -18,11 +18,11 @@ export async function collectSchedule(config, io) {
   const days=(Date.parse(end+'T00:00:00Z')-Date.parse(start+'T00:00:00Z'))/86400000;
   if (days<=0 || days>240) fail('只支持不超过 240 天的一个学期');
   const responses=[], rows=[];
-  // Each record stays bound to its own request, even when reads overlap.
   async function request(path,params) {
-    const record={path,params,response:scrub(await io.fetchJSON(path,params))};
-    try { io.onResponseRead?.(record); } catch {}
-    return record;
+    const response=scrub(await io.fetchJSON(path,params));
+    responses.push({path,params,response});
+    try { io.onResponseRead?.(responses[responses.length - 1]); } catch {}
+    return response;
   }
   const account_key=await io.accountKey();
   let cursor=start;
@@ -31,7 +31,7 @@ export async function collectSchedule(config, io) {
     const next=month===12?`${year+1}-01-01`:`${year}-${String(month+1).padStart(2,'0')}-01`;
     const stop=next<end?next:end;
     io.status(`读取 ${cursor} 至 ${stop}`);
-    const page=await request('/Home/GetCurriculumTable',{Start:cursor,End:stop}), raw=page.response;
+    const raw=await request('/Home/GetCurriculumTable',{Start:cursor,End:stop});
     if (!raw || !Array.isArray(raw.List)) fail(`${cursor} 返回的课表缺少 List 数组`);
     const term=String(raw?.Title??'').match(/(\d{4}-\d{4})\s*学年\s*第\s*(\d+)\s*学期/);
     // A verified empty January response has Title:null and List:[].
@@ -45,8 +45,7 @@ export async function collectSchedule(config, io) {
       if (day<cursor || day>stop) fail('接口未按日期范围返回数据');
       if (day<stop) rows.push(row);
     }
-    responses.push(page);
-    io.onResponse?.(page);
+    io.onResponse?.(responses[responses.length-1]);
     cursor=stop;
   }
   if (!rows.length) fail('整个学期返回空课表，已停止；请核对登录账号和书签学期，旧课表保留');
@@ -61,37 +60,18 @@ export async function collectSchedule(config, io) {
   };
   const parameters = row => Object.fromEntries(
     ['MCSID','CSID','CurriculumID','XXKMID','CurriculumType'].map(key => [key, parameterText(row[key])]));
-  const requested=new Set(), jobs=[];
-  for (const row of rows) {
+  const requested=new Set();
+  for (const [index,row] of rows.entries()) {
+    io.status(`读取教师详情 ${index+1}/${rows.length}，请保持页面打开…`);
     const params=parameters(row);
     const key=JSON.stringify({...params,MCSID:ids(params.MCSID).join(',')});
-    if (!requested.has(key)) { requested.add(key); jobs.push(params); }
+    if (requested.has(key)) continue;
+    const result=await request('/Home/GetCalendarTable',params);
+    if (!Array.isArray(result) || result.some(d=>!d||typeof d!=='object'||Array.isArray(d))) fail('教学日历结构改变');
+    if (!result.length) throw Object.assign(new Error('教学日历详情为空，请重新采集；旧课表保留'), {code:'EMPTY_DETAILS'});
+    io.onResponse?.(responses[responses.length-1]);
+    requested.add(key);
   }
-  // Up to io.detailConcurrency reads overlap (the transport enforces the same
-  // bound). Records keep row order; after any failure no new read starts, and
-  // reads already sent finish so their validated results can be resumed.
-  const details=new Array(jobs.length), width=Math.max(1,Math.min(3,Math.floor(Number(io.detailConcurrency)||1)));
-  let next=0, done=0, failure=null;
-  io.status(`读取教师详情 0/${jobs.length}，请保持页面打开…`);
-  async function worker() {
-    while (!failure && next<jobs.length) {
-      const index=next++;
-      try {
-        const record=await request('/Home/GetCalendarTable',jobs[index]), result=record.response;
-        if (!Array.isArray(result) || result.some(d=>!d||typeof d!=='object'||Array.isArray(d))) fail('教学日历结构改变');
-        if (!result.length) throw Object.assign(new Error('教学日历详情为空，请重新采集；旧课表保留'), {code:'EMPTY_DETAILS'});
-        io.onResponse?.(record);
-        details[index]=record;
-        done++;
-        if (!failure) io.status(`读取教师详情 ${done}/${jobs.length}，请保持页面打开…`);
-      } catch (error) {
-        if (!failure) failure=error;
-      }
-    }
-  }
-  await Promise.all(Array.from({length:Math.min(width,jobs.length)},worker));
-  if (failure) throw failure;
-  responses.push(...details);
   const capture={format:'shsmu-capture-v1',origin:'https://jwstu.shsmu.edu.cn',config,account_key,
     fetched_at:new Date().toISOString(),complete:true,responses};
   await io.saveCapture(capture);
