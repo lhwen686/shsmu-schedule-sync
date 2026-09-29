@@ -30,7 +30,7 @@ jobs:
         run: |
           mkdir probe
           echo "mirror check $GITHUB_RUN_ID" > probe/probe.txt
-          head -c 12000000 /dev/urandom > probe/multipart.bin  # Large enough for a multipart upload.
+          head -c 45000000 /dev/urandom > probe/package.bin  # As large as the combined release ZIP.
           echo '{"probe": true}' > probe/latest-signed.json
           bash .github/publish_cos.sh probe "0.0.0-run$GITHUB_RUN_ID" releases/mirror-check
       - name: Confirm anonymous listing, writing and reading outside releases/ are refused

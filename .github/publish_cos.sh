@@ -20,16 +20,23 @@ export AWS_ACCESS_KEY_ID=$COS_SECRET_ID AWS_SECRET_ACCESS_KEY=$COS_SECRET_KEY AW
 # COS rejects the CRC checksums newer AWS CLIs add by default.
 export AWS_REQUEST_CHECKSUM_CALCULATION=when_required AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
 # COS refuses path-style requests; address the bucket as <bucket>.cos.<region>.
+# From GitHub's US runners, parallel multipart parts to Shanghai are each slow
+# enough for COS to drop them (UserNetworkTooSlow): send each file in one PUT.
 AWS_CONFIG_FILE=$(mktemp)
 export AWS_CONFIG_FILE
-printf '[default]\ns3 =\n    addressing_style = virtual\n' > "$AWS_CONFIG_FILE"
+printf '[default]\ns3 =\n    addressing_style = virtual\n    multipart_threshold = 100MB\n    max_concurrent_requests = 1\n' > "$AWS_CONFIG_FILE"
 endpoint="https://cos.$COS_REGION.myqcloud.com"
 public="https://$COS_BUCKET.cos.$COS_REGION.myqcloud.com"
 
 upload() {  # <file> <key> [extra aws args]
   local file=$1 key=$2
   shift 2
-  aws s3 cp --only-show-errors --endpoint-url "$endpoint" "$@" "$file" "s3://$COS_BUCKET/$key"
+  for attempt in 1 2 3; do
+    aws s3 cp --only-show-errors --endpoint-url "$endpoint" "$@" "$file" "s3://$COS_BUCKET/$key" && return
+    echo "retrying $key ($attempt)" >&2
+    sleep $((attempt * 10))
+  done
+  return 1
 }
 
 verify() {  # <file> <key>
