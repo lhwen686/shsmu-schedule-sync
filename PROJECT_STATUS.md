@@ -1,6 +1,18 @@
 # 项目状态
 
 <a id="baseline"></a>
+## rc18 双平台预发布（2026-09-29）
+
+发布分支 `codex/release-rc18` 基于 `codex/release-rc17`。应用 `1.0.0-rc18`、Mac 修订 12 / 构建号 `18.0`，书签仍为 `2026-09-29.19`。
+rc17 实机发现：切换设置页标签时整页跳动。根因是 Tk 向焦点控件的每个祖先容器也发送 FocusIn，`_focus_visible` 把整张卡片滚入视野；本版只处理真正获得焦点的控件。点击标签时由助手自己切换页面，不再让 Tk 把焦点移入第一个输入框并选中文字（首次 rc18 工作流在 Mac 上由新测试发现仅靠 `focus_set` 不足，未发布）。
+rc16 → rc17 实机自动更新已通过；rc17 → rc18 用于验证经 COS 下载的更新。结果见 [rc18 验收](STUDENT_ACCEPTANCE.md#acceptance-rc18)。
+
+## rc17 双平台预发布（2026-09-29）
+
+发布分支 `codex/release-rc17` 基于 main `64527c1`（PR #14 签名更新清单、PR #15 腾讯云 COS 同步）。应用 `1.0.0-rc17`、Mac 修订 11 / 构建号 `17.0`，书签仍为 `2026-09-29.19`。
+本版首次读取 `latest-signed.json`，下载源为 COS 优先、GitHub 备用；修复 clam 主题把选中标签页内边距改为 `6 4 6 2` 导致设置页标签点击后缩小错位的问题。
+发布与更新流程的验证结果见 [rc17 验收](STUDENT_ACCEPTANCE.md#acceptance-rc17)。
+
 ## rc16 双平台预发布（2026-09-29）
 
 基于已合并的公开 main `b4c324f`（PR #11），发布分支 `codex/release-rc16`。应用 `1.0.0-rc16`、Mac 修订 10 / 构建号 `16.0`，书签 `2026-09-29.19`；首次包含应用内更新（GitHub `update-channel` 的 `latest.json`）、界面改版和逐条读取。

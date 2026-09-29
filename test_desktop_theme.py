@@ -289,6 +289,45 @@ class MedicalThemeTests(unittest.TestCase):
         self.assertEqual(len([w for w in walk_widgets(notebook) if isinstance(w,ttk.Entry)]),33)
         self.assertFalse(self.button('保存设置').instate(['disabled']))
 
+    def test_selecting_a_settings_tab_keeps_every_tab_the_same_size(self):
+        # clam maps a selected tab to padding '6 4 6 2', so clicking a tab shrank
+        # it and shifted its label and neighbours (reported 2026-09-29).
+        style=ttk.Style(self.window)
+        normal=str(style.lookup('TNotebook.Tab','padding'))
+        self.assertEqual(str(style.lookup('TNotebook.Tab','padding',['selected'])),normal)
+        self.assertEqual(normal.split()[:2],[str(self.ui.px(18)),str(self.ui.px(9))])
+        # The pages differ in height, so compare the tab style, not the notebook.
+
+    def test_clicking_a_settings_tab_neither_scrolls_nor_selects_a_field(self):
+        # Tk moves focus into the new tab's first entry (selecting its text), and
+        # scrolling focus into view then jumped the page (reported 2026-09-29).
+        self.window.deiconify()
+        self.window.geometry('900x420')
+        self.ui.show_settings()
+        self.button('修改').invoke()
+        notebook=next(w for w in walk_widgets(self.ui.content) if isinstance(w,ttk.Notebook))
+        self.window.update()
+        y=self.ui.px(12)
+        for index in (1,2,0):
+            x=next(x for x in range(notebook.winfo_width()) if notebook.index(f'@{x},{y}')==index)
+            self.window.update()  # Let any window-manager resize settle before measuring.
+            offset=self.ui.scroller.offset
+            notebook.event_generate('<ButtonPress-1>',x=x+2,y=y)
+            notebook.event_generate('<ButtonRelease-1>',x=x+2,y=y)
+            self.window.update()
+            self.assertEqual(notebook.index('current'),index)
+            self.assertNotIsInstance(self.window.focus_get(),ttk.Entry)
+            self.assertEqual(self.ui.scroller.offset,offset)
+        # Keyboard focus on a field below the fold still scrolls just that field into view.
+        notebook.select(1)
+        self.window.update()
+        last=[w for w in walk_widgets(notebook.nametowidget(notebook.select())) if isinstance(w,ttk.Entry)][-1]
+        last.focus_force()
+        self.window.update()
+        top=last.winfo_rooty()-self.ui.scroller.content.winfo_rooty()-self.ui.scroller.offset
+        self.assertGreater(self.ui.scroller.offset,0)
+        self.assertLessEqual(top+last.winfo_height(),self.ui.scroller._metrics()[1])
+
     def test_busy_navigation_duplicate_start_and_after_cleanup(self):
         self.ui.service.save_settings({**self.ui.service.config(),'downloads_dir':str(self.root/'downloads')})
         (self.root/'downloads').mkdir()

@@ -365,8 +365,10 @@ class AssistantWindow:
         widget = event.widget
         if not hasattr(self, 'content') or self.disposed or widget.winfo_toplevel() != self.window:
             return
-        if not str(widget).startswith(str(self.content) + '.'):
-            return
+        if not str(widget).startswith(str(self.content) + '.') or isinstance(widget, ttk.Notebook):
+            return  # A focused notebook's tabs were just clicked; scrolling the whole container only jumps.
+        if str(self.window.focus_get() or '') != str(widget):
+            return  # Tk also sends FocusIn to every ancestor frame; scrolling a whole card jumped the page.
         self.window.update_idletasks()
         # Leave one scroll increment around keyboard focus.
         self.scroller.ensure_visible(widget, self.px(24))
@@ -1380,6 +1382,18 @@ class AssistantWindow:
         body = self.card(padding=12)
         notebook = ttk.Notebook(body)
         notebook.pack(fill='both', expand=True)
+        # Tk's own tab click moves focus into the new tab's first entry and selects
+        # its text, which also scrolled the page. Switch the tab ourselves instead;
+        # relying on focus_set first failed on macOS, where focus can be deferred.
+        def activate_tab(event):
+            try:
+                index = event.widget.index(f'@{event.x},{event.y}')
+            except tk.TclError:
+                return None  # Not on a tab.
+            event.widget.select(index)
+            event.widget.focus_set()
+            return 'break'
+        notebook.bind('<ButtonPress-1>', activate_tab)
         term_tab, times_tab, storage_tab = [ttk.Frame(notebook, style='Card.TFrame', padding=self.px(16)) for _ in range(3)]
         for tab, text in [(term_tab, '学期'), (times_tab, '作息时间'), (storage_tab, '文件夹')]:
             notebook.add(tab, text=text)

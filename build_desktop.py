@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parent
 APP_NAME = '医学院课表助手'
 MAC_MINIMUM = (11, 0, 0)
 MAC_INFO_PLIST = {'CFBundleShortVersionString': APP_VERSION.split('-')[0],
-                  'CFBundleVersion': '16.0', 'LSMinimumSystemVersion': '11.0',
+                  'CFBundleVersion': '18.0', 'LSMinimumSystemVersion': '11.0',
                   'NSAboutPanelOptionVersion': APP_VERSION + ' · ' + MAC_PACKAGE_LABEL}
 BUILD_INPUTS = ('build_desktop.py', 'desktop.py', 'desktop_theme.py', 'desktop_service.py', 'desktop_smoke.py',
                 'desktop-macos.spec', 'package_desktop.py',
