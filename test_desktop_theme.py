@@ -156,6 +156,41 @@ class MedicalThemeTests(unittest.TestCase):
             self.ui._wheel(SimpleNamespace(widget=self.ui.content, delta=-120))
             scroll.assert_called_once()
 
+    def test_home_checklist_reopens_every_step_and_only_finished_setups_may_skip(self):
+        self.ui.service.confirm_term()
+        self.ui.service.acknowledge_bookmark()
+        self.ui.show_setup(2)
+        # A first run has no committed timetable: nothing to skip back to.
+        self.assertRaises(StopIteration, self.button, '跳过，回到首页')
+        self.saved()
+        self.ui.show_home()
+        texts = [str(w.cget('text')) for w in walk_widgets(self.ui.content) if 'text' in w.keys()]
+        for text in ('学期', '课表书签', '手机导入', '文件已生成，手机尚未确认导入'):
+            self.assertIn(text, texts)
+        self.button('重新安装').invoke()
+        self.assertEqual(self.ui.page, 'bookmark')
+        self.assertIn('复制安装页地址', [str(w.cget('text')) for w in walk_widgets(self.ui.content)
+                                        if isinstance(w, ttk.Button)])
+        self.button('跳过，回到首页').invoke()
+        self.assertEqual(self.ui.page, 'home')
+        self.button('更改').invoke()
+        self.assertEqual(self.ui.page, 'settings-details')
+        self.ui.show_home()
+        self.button('查看文件与导入步骤').invoke()
+        self.assertEqual(self.ui.page, 'results')
+        self.checks()[0].invoke()
+        self.ui.show_home()
+        texts = [str(w.cget('text')) for w in walk_widgets(self.ui.content) if 'text' in w.keys()]
+        self.assertIn('已确认导入：WakeUp', texts)
+
+    def test_waiting_page_can_copy_the_bookmark_installer_without_leaving(self):
+        self.ui.browser_collection = True
+        self.ui.show_work()
+        self.button('复制书签安装页地址').invoke()
+        self.assertEqual(self.window.clipboard_get(), self.ui.service.bookmark_path.as_uri())
+        self.assertIn('拖到书签栏', self.ui.status.get())
+        self.assertEqual(self.ui.page, 'waiting')
+
     def test_home_links_to_both_real_format_cards_and_regenerate_is_export_only(self):
         self.saved()
         self.ui.show_home()

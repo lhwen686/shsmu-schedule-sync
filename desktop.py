@@ -453,24 +453,49 @@ class AssistantWindow:
             self.recovery_row()
             return
         last = date.fromisoformat(config['end_exclusive']) - timedelta(days=1)
-        self.clear('', '我的课表', f"{semester_label(config['semester'])} · 读取范围 {config['start']} 至 {last}", page='home')
-        body = self.card()
-        self.label(f"已保存 {len(current['events'])} 次课程", 'section', (0, 6), parent=body)
-        self.label('上次获取：' + readable_time(current.get('capture_fetched_at')), 'small', (0, 2), parent=body)
         days = [e['date'] for e in current['events']]
-        if days:
-            self.label(f'课程日期：{min(days)} 至 {max(days)}', 'small', (0, 0), parent=body)
-        self.button('重新获取课表', self.start, primary=True, parent=body).pack_configure(pady=(self.px(18), self.px(2)))
+        self.clear('', '我的课表', f"已保存 {len(current['events'])} 次课程" +
+                   (f' · 课程日期 {min(days)} 至 {max(days)}' if days else ''), page='home')
         wakeup, apple = self.service.ready_export(), self.service.ready_apple_export()
+        state = self.service.state()
+        confirmed = [name for name, ready, key, hash_key in (
+            ('WakeUp', wakeup, 'phone_confirmed_csv', 'csv_sha256'),
+            ('苹果日历', apple, 'phone_confirmed_ics', 'ics_sha256'))
+            if ready is not None and state.get(key) == ready[hash_key]]
+        if wakeup is None and apple is None:
+            phone = '导入文件不可用，请重新生成', False
+        elif confirmed:
+            phone = '已确认导入：' + '、'.join(confirmed), True
+        else:
+            phone = '文件已生成，手机尚未确认导入', False
+        # Every step stays reachable: a deleted bookmark or a new phone never
+        # hides its guide, while finished steps collapse to one line.
+        self.checklist(self.card(), [
+            ('学期', f"{semester_label(config['semester'])} · {config['start']} 至 {last}", True,
+             '更改', lambda: self.show_settings_details(0)),
+            ('课表书签', '上次获取课表：' + readable_time(current.get('capture_fetched_at')), True,
+             '重新安装', lambda: self.show_setup(2)),
+            ('手机导入', phone[0], phone[1], '查看文件与导入步骤', self.show_files)])
         body = self.card()
-        title = ('导入文件已生成' if wakeup is not None and apple is not None else
-                 '部分导入文件可用' if wakeup is not None or apple is not None else '当前导入文件不可用')
-        self.label(title, 'strong', (0, 4), parent=body)
-        self.label('电脑文件更新后，仍需在手机重新导入。', 'small', (0, 10), parent=body)
+        self.button('重新获取课表', self.start, primary=True, parent=body).pack_configure(pady=(0, self.px(8)))
+        self.label('点击后，到教务首页点击“同步医学院课表”书签。', 'small', (0, 10), parent=body)
         links = self.row(body)
-        self.button('查看文件与导入步骤', self.show_files, parent=links, link=True).pack_configure(side='left', pady=0, padx=(0, self.px(18)))
-        self.button('重新生成导入文件', lambda: self.start(export_only=True), parent=links, link=True).pack_configure(side='left', pady=0)
-        self.footer_links('已有课表文件？', [('选择已下载的课表', self.pick_capture), ('更改学期', lambda: self.show_settings_details(0))])
+        self.button('重新生成导入文件', lambda: self.start(export_only=True), parent=links, link=True).pack_configure(side='left', pady=0, padx=(0, self.px(18)))
+        self.button('选择已下载的课表', self.pick_capture, parent=links, link=True).pack_configure(side='left', pady=0)
+
+    def checklist(self, parent, steps):
+        for index, (title, status, done, action_text, action) in enumerate(steps, 1):
+            if index > 1:
+                self.rule(parent, (12, 12))
+            row = self.row(parent)
+            tk.Label(row, image=self.theme.dot('done' if done else 'current', SURFACE), text='✓' if done else str(index),
+                     compound='center', font=self.theme.font(11, 'bold'), fg=GREEN if done else SURFACE,
+                     bg=SURFACE, bd=0).pack(side='left', anchor='n', padx=(0, self.px(14)))
+            self.button(action_text, action, parent=row, link=True).pack_configure(side='right', anchor='n', pady=0)
+            column = tk.Frame(row, bg=SURFACE)
+            column.pack(side='left', fill='x', expand=True)
+            self.label(title, 'strong', (1, 2), parent=column)
+            self.label(status, 'small' if done else 'pending', (0, 0), parent=column)
 
     def show_files(self):
         if self.running:
@@ -490,7 +515,13 @@ class AssistantWindow:
             self.button('确认学期并继续', self.confirm_term, primary=True, parent=body).pack_configure(pady=0)
             self.recovery_row(original=True)
         else:
+            reinstall = self.service.current() is not None and self.service.setup_step() == 0
             self.clear('', '安装课表书签', '在平时登录教务系统的浏览器中完成。', step=2, page='bookmark')
+            if reinstall:
+                # Reached from the home checklist: finished setups may go straight back.
+                self.content.winfo_children()[-1].pack_configure(pady=(0, self.px(6)))
+                self.footer_links('书签还在？', [('跳过，回到首页', self.show_home)])
+                self.content.winfo_children()[-1].pack_configure(pady=(0, self.px(16)))
             body = self.card()
             column = self.numbered(body, 1, '复制安装页地址', '粘贴到浏览器地址栏并打开。')
             self.button('复制安装页地址', lambda: self.copy_text(self.service.bookmark_path.as_uri()),
@@ -502,7 +533,8 @@ class AssistantWindow:
             self.numbered(body, 3, '回到这里继续')
             self.status_label(body)
             self.button('已添加书签，继续', self.confirm_bookmark, primary=True, parent=body).pack_configure(pady=(self.px(4), 0))
-            self.recovery_row()
+            if not reinstall:
+                self.recovery_row()
 
     def dialog(self, title, width=720, height=530):
         dialog = tk.Toplevel(self.window)
@@ -593,7 +625,9 @@ class AssistantWindow:
         self.cancel_button.pack_configure(side='left', padx=(0, self.px(10)))
         self.button('查看处理详情', self.show_details, parent=actions, link=True).pack_configure(side='left')
         if self.browser_collection:
-            self.label('浏览器已下载，这里仍在等待？点“选择已下载的课表”，选中刚下载的 JSON。', 'small')
+            self.label('浏览器已下载，这里仍在等待？点“选择已下载的课表”，选中刚下载的 JSON。', 'small', (6, 4))
+            self.footer_links('找不到书签或点击没反应？', [('复制书签安装页地址', lambda: self.copy_text(
+                self.service.bookmark_path.as_uri(), '安装页地址已复制。在浏览器地址栏粘贴打开，把“同步医学院课表”拖到书签栏，再到教务首页点击它。'))])
         for button in self.nav_buttons:
             button.state(['disabled'])
 
