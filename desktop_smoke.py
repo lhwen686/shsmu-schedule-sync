@@ -43,7 +43,7 @@ def self_test(report_path):
             import html
             import re
             from urllib.parse import unquote
-            from prepare import BROWSER_MODULES
+            from prepare import BOOKMARK_LIMIT, BROWSER_MODULES, compact_script
             from diagnostics import APP_VERSION
             page = service.bookmark_path.read_text(encoding='utf-8')
             bookmark = html.unescape(re.search(r'<a class="bookmark" href="([^"]+)"', page)[1])
@@ -51,8 +51,9 @@ def self_test(report_path):
             assert "const revision = '2026-09-28.16';" in script
             for name in BROWSER_MODULES:
                 body = (service.resources / name).read_text(encoding='utf-8').replace('export ', '', 1)
-                assert body in script, f'安装页未包含完整资源：{name}'
-            assert '课表助手 · v${revision}' in script
+                assert compact_script(body) in script, f'安装页未包含完整资源：{name}'
+            assert compact_script('课表助手 · v${revision}') in script
+            assert len(bookmark) <= BOOKMARK_LIMIT, '书签超过 Firefox 可保存的长度'
             assert 'Safari' in page
             report.update(app_version=APP_VERSION, collector_revision='2026-09-28.16',
                           generated_bookmark_sha256=hashlib.sha256(bookmark.encode()).hexdigest(),

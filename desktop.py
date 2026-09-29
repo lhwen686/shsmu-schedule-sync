@@ -577,42 +577,57 @@ class AssistantWindow:
         self.status.set('正在取消操作…已保存的课表不会因此删除。')
 
     def poll(self):
+        # One failing page render must not stop the queue: a lost 'finished'
+        # would leave the window running forever and unable to close.
         try:
-            while True:
-                stage, value = self.job.events.get_nowait()
-                if stage == 'finished':
-                    self.running = False
-                    for button in self.nav_buttons:
-                        button.state(['!disabled'])
-                    if self.closing:
-                        self.dispose()
-                        return
-                    if self.pending:
-                        action, self.pending = self.pending, None
-                        self.window.after(50, action)
-                elif stage == 'result':
-                    self.last_result = value
-                    self.show_result(value)
-                elif stage == 'error':
-                    self.show_issue(value)
-                else:
-                    if self.browser_collection and stage in ('processing', 'committing', 'exporting'):
-                        self.browser_collection = False
-                        self.show_work()
-                    self.details.append(str(value))
-                    if stage == 'waiting':
-                        if '失败诊断' in value:
-                            self.status.set('浏览器读取未完成，请按网页提示处理。助手仍在等待课表文件。')
-                        elif not self.job.cancelled.is_set():
-                            self.status.set('已准备好接收。请前往浏览器读取课表。')
-                    elif stage != 'detail':
-                        self.status.set(str(value))
-                    if hasattr(self, 'picker_button') and self.picker_button.winfo_exists():
-                        self.picker_button.configure(state='normal' if self.job.stage == 'waiting' else 'disabled')
-                        self.cancel_button.configure(state='disabled' if self.job.stage in ('committing', 'exporting') else 'normal')
-        except queue.Empty:
-            pass
-        self.poll_id = self.window.after(100, self.poll)
+            while not self.disposed:
+                try:
+                    stage, value = self.job.events.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    self._handle_job_event(stage, value)
+                except Exception as error:
+                    try:
+                        self.handle_error(error, 'ui_event_failed')
+                    except Exception:
+                        pass
+        finally:
+            if not self.disposed:
+                self.poll_id = self.window.after(100, self.poll)
+
+    def _handle_job_event(self, stage, value):
+        if stage == 'finished':
+            self.running = False
+            for button in self.nav_buttons:
+                button.state(['!disabled'])
+            if self.closing:
+                self.dispose()
+                return
+            if self.pending:
+                action, self.pending = self.pending, None
+                self.window.after(50, action)
+        elif stage == 'result':
+            self.last_result = value
+            self.show_result(value)
+        elif stage == 'error':
+            self.show_issue(value)
+        else:
+            if self.browser_collection and stage in ('processing', 'committing', 'exporting'):
+                self.browser_collection = False
+                self.show_work()
+            self.details.append(str(value))
+            if stage == 'waiting':
+                if '失败诊断' in value:
+                    self.status.set('浏览器读取未完成，请按网页提示处理。助手仍在等待课表文件。')
+                elif not self.job.cancelled.is_set():
+                    self.status.set('已准备好接收。请前往浏览器读取课表。')
+            elif stage != 'detail':
+                self.status.set(str(value))
+            if hasattr(self, 'picker_button') and self.picker_button.winfo_exists():
+                self.picker_button.configure(state='normal' if self.job.stage == 'waiting' else 'disabled')
+                if self.cancel_button.winfo_exists():
+                    self.cancel_button.configure(state='disabled' if self.job.stage in ('committing', 'exporting') else 'normal')
 
     def show_result(self, result, *, from_saved=False):
         report, apple_report, imported = result['report'], result['apple_report'], result['imported']
@@ -998,8 +1013,18 @@ class AssistantWindow:
                 filetypes=[('课表文件（shsmu-capture-*.json）', 'shsmu-capture-*.json'), ('JSON 文件', '*.json')])
             if selected:
                 self.service.diagnostics.event('file_picker_selected')
-                if was_waiting:
-                    self.job.submit_file(selected)
+                if not was_waiting:
+                    self.start(capture=Path(selected))
+                elif self.job.submit_file(selected):
+                    pass
+                elif self.job.busy:
+                    # The waiter moved on while the dialog was open; never drop the choice silently.
+                    self.status.set('助手已开始处理其他课表文件，请完成后再选择这个文件。')
+                elif self.running:
+                    # The wait ended while the dialog was open. Import the choice
+                    # after that job's pending 'finished' event has been handled.
+                    chosen = Path(selected)
+                    self.pending = lambda: self.start(capture=chosen)
                 else:
                     self.start(capture=Path(selected))
         finally:
@@ -1189,7 +1214,12 @@ class AssistantWindow:
         self.button('保存设置', save, primary=True)
 
     def close(self):
-        if self.disposed or self.closing:
+        if self.disposed:
+            return
+        # A finished worker cannot deliver another event; never wait for one.
+        if self.running and not self.job.busy:
+            self.running = False
+        if self.closing and self.running:
             return
         if self.running:
             self.closing = True

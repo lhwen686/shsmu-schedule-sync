@@ -69,6 +69,11 @@ def explain_error(error, *, exporting=False, apple=False):
         title, action = '选中的是排错文件，不是课表', '请在教务网页完成读取，再选择 shsmu-capture- 开头的 JSON 文件。'
     elif '更旧' in detail:
         title, action = '所选文件早于当前课表', '请选择最新下载的课表文件；当前课表未回退。'
+    elif '整个学期返回空课表' in detail:
+        # Usually a login/account issue, not the term setting: keep this before '学期'.
+        title, action = '没有读取到任何课程', '请在浏览器确认已登录本人账号，并能在“我的课表”看到课程；再核对学期日期范围后重新获取。已保存的课表没有被清空。'
+    elif '数据分支' in detail:
+        title, action = '学校返回了尚未支持的数据', '已停止并保留原课表。请导出排错日志发给维护者。'
     elif any(word in detail for word in ('学期', '配置文件', 'semester', 'start、end_exclusive')):
         title, action = '课表与学期设置不一致', '请在“设置 → 学期”中核对学期和日期范围，再更新浏览器书签。'
     elif '等待结束' in detail:
@@ -79,12 +84,18 @@ def explain_error(error, *, exporting=False, apple=False):
         title, action = '无法读取下载文件夹', '请检查该文件夹的访问权限，或点“选择已下载的课表”手动选择 JSON；也可选择其他下载文件夹。'
     elif '详情为空' in detail:
         title, action = '学校返回的课程详情不完整', '请在教务首页重新读取课表。不完整结果不会替换已保存的课表。'
-    elif 'JSON' in detail or '采集文件' in detail:
+    elif known and ('JSON' in detail or '采集文件' in detail):
         title, action = '课表文件暂不可用', '请确认下载已完成；必要时在教务网页重新下载课表文件，再回助手选择。'
     elif '没有已提交' in detail:
         title, action = '尚未保存课表', '请先返回首页，点击“获取课表”。'
+    elif not known and isinstance(error, (ValueError, KeyError)):
+        # Not a downloaded capture: an unreadable saved record (e.g. JSONDecodeError).
+        title, action = '已保存的课表记录无法读取', '请保留课表文件夹，导出排错日志发给维护者；不要删除或重建原记录。'
     if isinstance(error, OSError):
-        title, action = '文件操作未完成', '请检查磁盘空间和文件夹权限后重试。不要删除原课表文件。'
+        if getattr(error, 'winerror', None) in (5, 32, 33) or isinstance(error, PermissionError):
+            title, action = '文件正被其他程序使用或无法写入', '请关闭正在打开 wakeup.csv、calendar.ics 等文件的程序（如 Excel、WPS），再重新生成导入文件；仍失败时请检查文件夹写入权限。'
+        else:
+            title, action = '文件操作未完成', '请检查磁盘空间和文件夹权限后重试。不要删除原课表文件。'
     reason = _display_reason(error)
     if reason is not None:
         title, action = reason

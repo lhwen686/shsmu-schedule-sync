@@ -1,5 +1,80 @@
 # 验证与修复记录
 
+<a id="audit-fixes-20260929"></a>
+## AUDIT-FIXES-20260929：rc15 缺陷审计中已确认问题的源码修复（未发布）
+
+**编号 / 日期 / 问题：** AUDIT-FIXES-20260929，2026-09-29。修复 rc15 全仓缺陷审计中已确认的问题：
+
+- 诊断记录每条事件都全量落盘并扫描目录，导入耗时随保留日志数线性增长；
+- 界面事件轮询一次出错即永久停止，窗口无法关闭；
+- 同学期缩小或平移读取范围时，历史被丢弃、SEQUENCE 回退、摘要显示全部新增；
+- `clean()` 删除 `<` 与其后 `>` 之间的课程文字；
+- 输出文件被其他程序占用时遗留 `.tmp`，并给出“磁盘空间”提示；
+- 选择文件期间等待到期，所选文件被静默丢弃；
+- 已保存的未来采集时间（电脑时钟偏快）永久阻断之后的采集；
+- 错误分类误导（空学期、新数据分支、已保存记录损坏）；
+- 记录接近上限时，异常被挂到无关事件上。
+
+**权限与改动范围：** 用户要求修复已明确的问题，并以 GitHub 最新发布为准。改动包括：
+
+- `core.py`、`sync.py`、`desktop.py`、`desktop_service.py`、`diagnostics.py` 及对应测试；
+- 本条记录、PROJECT_STATUS、AGENTS 说明；
+- 书签缩短时另改 `prepare.py`、`desktop_smoke.py` 和重新生成的 `chrome-bookmark.html`（见下文）。
+
+浏览器采集模块未改。
+
+**基线：** GitHub 最新发布 `v1.0.0-rc15`（`4501d8e`）。公开 main `0812031` 在其后只改了三份文档，产品源码与发布标签一致。从 `origin/main` `0812031` 建立本地分支 `codex/audit-fixes-20260929`，已有工作区干净（仅未跟踪的审计报告）。
+
+**复现：** Windows 11 / Python 3.12.6 / Node 24，合成数据和隔离临时目录。10 个新增回归用例在未修改的 `0812031` 源码上全部失败：8 FAIL、3 ERROR，其中一个 GUI 用例同时报告清理失败。诊断实验（128 事件，保留 0 / 50 / 100 / 200 个日志文件）：导入+导出 2.83 / 14.34 / 27.26 / 43.46 s。
+
+**修复内容：**
+
+| 问题 | 修复 | 回归用例 |
+| --- | --- | --- |
+| 诊断拖慢导入 | 普通事件最多每 1 s 落盘一次；开始、结束、失败、异常、取消、关窗立即落盘；目录清理只在估算超出上限或每小时执行；记录大小增量估算；不再逐文件 `resolve()` | `test_diagnostics.test_routine_events_do_not_rewrite_or_rescan_retained_history_each_time` |
+| 异常挂错事件 | `event()` 返回是否已记录；未记录时只标 `EVENT_LIMIT` | `test_diagnostics.test_exception_is_never_attached_to_an_unrelated_event` |
+| 轮询停止/无法关闭 | 每个事件单独捕获异常并显示错误页；`finally` 中重新调度；工作线程已结束时 `close()` 直接关闭 | `test_desktop.DesktopWidgetTests.test_page_render_failure_keeps_queue_running_and_window_closable` |
+| 缩小范围丢历史 | 同学期范围变化：范围内事件正常协调，范围外的有效事件保存为不导出的 `retained_events`（保留 UID、修订、别名），范围恢复时按原 UID 匹配 | `test_desktop.DesktopTests.test_narrowed_same_semester_range_keeps_uid_revision_and_history` |
+| `clean()` 删文字 | 只删除白名单 HTML 标签且不跨行；真实标签输出不变 | `test_sync.TimetableTests.test_clean_keeps_comparison_text_and_removes_only_markup` |
+| 遗留 `.tmp` / 占用提示 | `atomic_write` 在 `finally` 中清理临时文件；PermissionError / winerror 5、32、33 提示关闭 Excel、WPS 等程序 | `test_failed_output_replace_leaves_no_temporary_file`、`test_error_copy_*` |
+| 选文件时等待到期 | 对话框打开期间不计入等待期限；`submit_file` 失败时排队导入或明确提示 | `test_file_dialog_time_does_not_expire_the_waiter` |
+| 未来采集时间阻断 | 已保存时间晚于当前时间 10 分钟以上时，允许导入并在变化提示中警告；正常的旧文件仍拒绝 | `test_saved_future_capture_time_does_not_block_a_later_capture` |
+| 错误分类 | 空学期→“没有读取到任何课程”；新数据分支单独提示；非下载文件的 JSON/Key 错误→“已保存的课表记录无法读取” | `test_error_copy_does_not_misdirect_login_saved_record_or_open_file_failures` |
+
+**改后回归：**
+
+- `python -B -X utf8 check.py --python-timeout 900`（借用同机已有 `.venv`，依赖与 `requirements.txt` 一致；未安装依赖），退出 0：Python 240 项，231 PASS、9 SKIP（7 项 Mac 专属，2 项符号链接权限），0 FAIL/ERROR，160.3 s；三组 JS PASS。
+- 加入书签缩短后再次完整检查，退出 0：Python 241 项，232 PASS、9 SKIP、0 FAIL/ERROR，165.6 s；三组 JS PASS。
+- 同一诊断实验改后为 0.64 / 0.63 / 1.03 / 1.17 s。
+- 审计复现脚本改后均显示预期行为；ICS/CSV 被占用时无遗留 `.tmp`。
+
+**差异审查：** 本人逐行审查最终 diff，未做独立审查。
+
+未修改的已知问题：
+
+- 拖动改变窗口宽度时，每步 90–118 ms：剖析显示超过 97% 的时间在 Tk 内部重排/重绘，Python 回调约 2.5%，去抖无效，需另行调整主题贴图或布局，本轮不改。
+- 并发采集遇到 429 即失败且不可续读：属于设计风险，缺少学校限流证据。
+
+**书签缩短（同一分支的后续修改）：** 用户要求缩短书签以适配 Firefox。rc15 生成的书签为 71,583 字符，超过 Firefox 书签 URL 上限 65,536（`DB_URL_LENGTH_MAX`，出自源码记忆，Firefox 实测 NOT RUN）。
+
+- **改法：** 采集模块一行未改。`prepare.compact_script()` 只在生成书签时去掉行首缩进、空行和整行 `//` 注释，并把中文写成 `\uXXXX` 转义，保留换行，因此自动分号插入不变。事先检查过，模块中没有跨行的字符串或模板字符串，也没有反斜杠紧跟中文的写法。反斜杠仍按原规则做百分号编码。
+- **结果：** 书签长度降为 **57,507**（rc15 配置），生成时若超过 `BOOKMARK_LIMIT = 62000` 直接报错。
+- **更新的文件：** 已跟踪的 `chrome-bookmark.html` 用原配置重新生成，只有书签地址变化；`desktop_smoke` 包内自检改为比对压缩后的模块内容。
+- **验证：**
+  - `test_capture.mjs` 从安装页取出生成的书签并实际执行完整采集流程，PASS；
+  - 新增 `test_generated_bookmark_fits_firefox_and_contains_every_module`；
+  - 源码模式 `desktop.py --self-test` PASS，报告 `generated_bookmark_length=57507`。
+- **对现有用户：** 书签修订号仍为 `2026-09-28.16`，执行的代码语义不变，桌面“书签确认”指纹（按模块文件哈希计算）也不变。已安装 `.16` 书签的 Chrome/Edge 用户无需替换；Firefox 用户可安装新生成的书签。Firefox/Safari 实际添加书签和采集仍为 NOT RUN。
+
+**兼容性：**
+
+- 快照新增可选键 `retained_events`，仅在缩小范围后出现。旧程序读取时会忽略，但它的协调不会使用这些保留记录。
+- `clean()` 改后，只有原本被误删文字的课程会在下一次采集时出现一次 CHANGED。这类课程在重新采集前，“重新生成导入文件”的 WakeUp 一致性检查会报告不一致；重新获取课表后恢复。
+
+**实机验收：** 学校实采、Firefox/Safari 书签、手机导入、EXE/APP 人工窗口均 NOT RUN。本条只是本地源码修复，未提交、未推送、未发布，应用版本仍标 `1.0.0-rc15`。
+
+**回滚：** 丢弃本分支，或逆向应用本分支的 diff。数据方面，只有缩小范围后的快照会包含 `retained_events`，不涉及删除或重置历史。
+
 <a id="release-rc15"></a>
 ## RELEASE-RC15：滚动性能与读取修复双平台附件
 

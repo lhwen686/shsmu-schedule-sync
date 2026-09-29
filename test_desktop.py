@@ -758,8 +758,108 @@ class DesktopTests(unittest.TestCase):
         self.assertNotIn('已保存', unknown.next_step)
         for apple in (False, True):
             issue = explain_error(PermissionError('synthetic'), exporting=True, apple=apple)
-            self.assertEqual(issue.title, '文件操作未完成')
+            self.assertEqual(issue.title, '文件正被其他程序使用或无法写入')
             self.assertNotIn('已保存', issue.next_step)
+
+    def test_error_copy_does_not_misdirect_login_saved_record_or_open_file_failures(self):
+        from desktop_service import explain_error
+        empty = explain_error(DataError('整个学期返回空课表；为避免登录或日期异常造成批量删除，已保留上次版本。'))
+        self.assertEqual(empty.title, '没有读取到任何课程')
+        self.assertIn('登录', empty.next_step)
+        branch = explain_error(DataError('教务新增了非空 List2 数据分支，需要先核实字段。'))
+        self.assertEqual(branch.title, '学校返回了尚未支持的数据')
+        try:
+            json.loads('{broken')
+        except ValueError as error:
+            saved = explain_error(error)
+        self.assertEqual(saved.title, '已保存的课表记录无法读取')
+        self.assertNotIn('下载', saved.next_step)
+        in_use = PermissionError(13, 'in use')
+        for issue in (explain_error(in_use), explain_error(in_use, exporting=True)):
+            self.assertIn('其他程序', issue.title)
+            self.assertIn('Excel', issue.next_step)
+        self.assertEqual(explain_error(OSError(28, 'No space')).title, '文件操作未完成')
+
+    def test_narrowed_same_semester_range_keeps_uid_revision_and_history(self):
+        one = item()
+        october = item(2)
+        october['event'].update(Start='2026-10-05T08:00:00', End='2026-10-05T09:30:00')
+        october['details'][0].update(ClassTime='2026-10-05T00:00:00', WeekNum=5)
+        self.service.run(capture=write_capture(self.root, [one, october]))
+        october['details'][0]['Teacher'] = '已更正教师'
+        self.service.run(capture=write_capture(self.root, [one, october], fetched=LATER))
+        before = sync.load_current(self.root)
+        by_date = {e['date']: e for e in before['events']}
+        self.assertEqual(by_date['2026-10-05']['sequence'], 1)
+        narrowed = {**self.service.config(), 'start': '2026-10-01', 'range_mode': 'custom'}
+        self.service.save_settings(narrowed)
+        result = self.service.run(capture=write_capture(self.root, [october], config=term_key(narrowed),
+                                                       fetched='2026-09-06T13:00:00Z'))
+        self.assertIsNone(result['issue'])
+        self.assertEqual(result['imported'].diff['summary'], {'ADDED': 0, 'REMOVED': 0, 'CHANGED': 0})
+        after = sync.load_current(self.root)
+        kept = after['events'][0]
+        for field in ('uid', 'sequence', 'created_at', 'modified_at', 'identity_aliases'):
+            self.assertEqual(kept[field], by_date['2026-10-05'][field])
+        self.assertEqual([e['uid'] for e in after['retained_events']], [by_date['2026-09-07']['uid']])
+        calendar = (self.root / 'output/calendar.ics').read_bytes()
+        self.assertNotIn(by_date['2026-09-07']['uid'].encode(), calendar)  # Not re-read: neither exported nor cancelled.
+        widened = {**narrowed, 'start': CONFIG['start']}
+        self.service.save_settings(widened)
+        restored = self.service.run(capture=write_capture(self.root, [one, october], config=term_key(widened),
+                                                         fetched='2026-09-06T14:00:00Z'))
+        self.assertEqual(restored['imported'].diff['summary'], {'ADDED': 0, 'REMOVED': 0, 'CHANGED': 0})
+        final = {e['uid']: e for e in sync.load_current(self.root)['events']}
+        first = by_date['2026-09-07']
+        self.assertEqual(final[first['uid']]['created_at'], first['created_at'])
+        self.assertEqual(final[first['uid']]['sequence'], first['sequence'])
+        self.assertNotIn('retained_events', sync.load_current(self.root))
+
+    def test_saved_future_capture_time_does_not_block_a_later_capture(self):
+        self.service.run(capture=write_capture(self.root, fetched='2030-01-01T00:00:00Z'))
+        changed = item()
+        changed['details'][0]['Teacher'] = '新教师'
+        result = self.service.run(capture=write_capture(self.root, [changed], fetched=LATER))
+        self.assertEqual(result['imported'].diff['summary']['CHANGED'], 1)
+        self.assertTrue(any('电脑时间' in w for w in result['imported'].diff['warnings']))
+        with self.assertRaisesRegex(DataError, '更旧'):
+            self.service.run(capture=write_capture(self.root, fetched=NOW))
+
+    def test_generated_bookmark_fits_firefox_and_contains_every_module(self):
+        import html
+        import re
+        from urllib.parse import unquote
+        from prepare import BOOKMARK_LIMIT, compact_script
+        page = self.service.bookmark_path.read_text(encoding='utf-8')
+        bookmark = html.unescape(re.search(r'<a class="bookmark" href="([^"]+)"', page)[1])
+        self.assertLessEqual(len(bookmark), BOOKMARK_LIMIT)
+        self.assertLess(BOOKMARK_LIMIT, 65536)  # Firefox Places URL limit.
+        script = unquote(bookmark.removeprefix('javascript:'))
+        self.assertTrue(script.isascii())
+        for name in BROWSER_MODULES:
+            source = (self.service.resources / name).read_text(encoding='utf-8').replace('export ', '', 1)
+            self.assertIn(compact_script(source), script)
+        # The installer's own capability check still embeds the readable module.
+        self.assertIn('function browserCapabilities', page)
+
+    def test_failed_output_replace_leaves_no_temporary_file(self):
+        target = self.root / 'output/probe.txt'
+        with patch('sync.os.replace', side_effect=PermissionError(13, 'in use')):
+            with self.assertRaises(PermissionError):
+                sync.atomic_write(target, b'new')
+        self.assertEqual(list(target.parent.glob('probe.txt.*.tmp')), [])
+
+    def test_file_dialog_time_does_not_expire_the_waiter(self):
+        downloads = self.root / 'downloads'
+        downloads.mkdir()
+        chosen, paused = write_capture(self.root), threading.Event()
+        paused.set()
+        timer = threading.Timer(1.2, paused.clear)  # The dialog stays open past the 0.5 s wait.
+        timer.start()
+        self.addCleanup(timer.cancel)
+        result = sync.wait_capture(downloads, timeout=0.5, progress=lambda text: None,
+                                   choose=lambda: None if paused.is_set() else chosen, paused=paused)
+        self.assertEqual(result, chosen)
 
     def test_reveal_only_selects_a_file_and_missing_log_uses_generic_issue(self):
         from desktop import reveal_file
@@ -930,6 +1030,25 @@ class DesktopWidgetTests(unittest.TestCase):
                         for t in threading.enumerate() if t.ident in frames})))
             raise
         self.assertFalse(self.callback_errors, f'Tk callback errors: {self.callback_errors!r}')
+
+    def test_page_render_failure_keeps_queue_running_and_window_closable(self):
+        failures = []
+        def broken(result, **options):
+            failures.append(result)
+            raise RuntimeError('synthetic render failure')
+        self.ui.show_result = broken
+        self.ui.running = True
+        self.ui.job.events.put(('result', {'report': None, 'apple_report': None, 'imported': None,
+                                           'issue': None, 'apple_issue': None}))
+        self.ui.job.events.put(('finished', None))
+        self.wait_tk(lambda: not self.ui.running and self.ui.job.events.empty())
+        self.assertEqual(len(failures), 1)
+        self.assertIn('导出排错日志', self.buttons())  # The failure is shown, not swallowed.
+        self.ui.job.events.put(('waiting', '已准备好接收'))
+        self.wait_tk(lambda: self.ui.job.events.empty())  # Later events are still consumed.
+        self.ui.running = True  # A lost 'finished' must not make the window unclosable.
+        self.ui.close()
+        self.assertTrue(self.ui.disposed)
 
     def test_diagnostic_dialog_exports_selected_record_and_cancel_is_harmless(self):
         import tkinter as tk

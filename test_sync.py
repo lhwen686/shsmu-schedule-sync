@@ -77,6 +77,14 @@ def mixed_fixture():
 
 
 class TimetableTests(unittest.TestCase):
+    def test_clean_keeps_comparison_text_and_removes_only_markup(self):
+        from core import clean
+        self.assertEqual(clean('血压&lt;140/90 且 心率&gt;60 为正常'), '血压<140/90 且 心率>60 为正常')
+        self.assertEqual(clean('剂量 <5 mg/kg 与 >2 岁患儿'), '剂量 <5 mg/kg 与 >2 岁患儿')
+        self.assertEqual(clean('<p>第一行</p><span style="color:red">第二行</span><br/>第三行'),
+                         '第一行\n第二行\n第三行')
+        self.assertEqual(clean('&lt;b&gt;重点&lt;/b&gt; <<测试课程>> '), '重点 测试课程')
+
     def baseline(self, items=None):
         return reconcile(normalized(items or [fixture()]), None, SCOPE, NOW)[0]
 

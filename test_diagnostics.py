@@ -24,6 +24,38 @@ from wakeup import build_export
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_routine_events_do_not_rewrite_or_rescan_retained_history_each_time(self):
+        with tempfile.TemporaryDirectory(prefix='诊断 性能 ') as folder:
+            log = DiagnosticRecorder(Path(folder))
+            log.directory.mkdir(parents=True)
+            for index in range(60):  # A month of retained operations.
+                (log.directory / (f'{index:032x}' + '.record.json')).write_text('{}', encoding='utf-8')
+            log.begin('sync')
+            with patch.object(log, 'prune', wraps=log.prune) as prune, \
+                    patch.object(log, '_write', wraps=log._write) as write:
+                for index in range(300):
+                    log.event('detail_read', index=index, count=1)
+            self.assertLessEqual(prune.call_count, 1)
+            self.assertLessEqual(write.call_count, 5)
+            log.finish('success')
+            saved = json.loads((log.directory / (log.record['operation_id'] + '.record.json')).read_text(encoding='utf-8'))
+            self.assertEqual(sum(e['event'] == 'detail_read' for e in saved['events']), 300)
+            self.assertEqual(len(list(log.directory.glob('*.record.json'))), 61)
+
+    def test_exception_is_never_attached_to_an_unrelated_event(self):
+        with tempfile.TemporaryDirectory(prefix='诊断 上限 ') as folder:
+            log = DiagnosticRecorder(Path(folder))
+            log.begin('sync')
+            log.event('waiting_started')
+            with patch('diagnostics.MAX_RECORD', log._record_bytes + 256000 + 10):
+                try:
+                    raise ValueError('synthetic')
+                except ValueError as error:
+                    log.exception(error, stage='worker_failed')
+            self.assertEqual(log.record['events'][-1]['event'], 'waiting_started')
+            self.assertNotIn('exception', log.record['events'][-1])
+            self.assertIn('EVENT_LIMIT', log.record['limitations'])
+
     def test_safari_diagnostic_label_survives_redaction(self):
         self.assertEqual(Redactor().clean({'diagnostics': {'browser': 'Safari'}}),
                          {'diagnostics': {'browser': 'Safari'}})
