@@ -1,5 +1,18 @@
 # 学生版候选版本验收
 
+<a id="acceptance-rc20"></a>
+## rc20 双平台候选版（2026-09-30）
+
+对象：Windows x64 EXE 与 Apple 芯片 Mac APP；应用 `1.0.0-rc20`、Mac 修订 14、构建号 `20.0`、书签 `2026-09-29.19`。修复更新后重启丢失 `--data-root`，见 [Windows 验证](VERIFICATION.md#rc19-windows-20260930)。
+
+| 项目 | 本版状态 |
+| --- | --- |
+| 双平台完整检查、原生构建、冻结自检、GitHub 与 COS 发布回读 | PASS：[发布工作流](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36656370723) 四个作业全部通过（含 COS 同步与回读）；[rc20 预发布](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc20) 对应源码 `191f8ed0d4b9b12b44871f4301d98f8b8d6bd0cb`；Mac 冻结自检 `update_ca_certificates` = 128 |
+| 本机回下载（2026-09-30 Windows 11） | PASS：七个附件与 `SHA256SUMS.txt` 一致；v1.0.0-rc20 八个文件经 COS 匿名读取与 GitHub 逐字节相同；COS 与 GitHub 更新通道 `latest-signed.json` 均与发布附件相同；包内 EXE SHA-256 `07c3efb9d90445b1f2fddf4b079a415bffe04b0ed9dc8eb2d971e71d18d3f718` 等于清单 `member_sha256`；下载的 EXE `--self-test` 退出 0，rc20、书签 `.19`、根证书 84 张 |
+| Windows rc19 → rc20 应用内更新 | PASS：发布的 rc19 EXE（`LOCALAPPDATA` 指向临时目录，未触及个人数据）启动即提示 rc20 并显示新版说明，确认后约 10 秒完成下载、替换与重启；新 EXE 哈希等于清单值，`.old` 已清理；界面显示 1.0.0-rc20，“检查更新”答复已是最新。重启由旧版 rc19 执行，`--data-root` 保留需 rc20 → 下一版本验证 |
+| Mac rc19 → rc20 下载更新（首个经 BUG-010 修复后的 Mac 网络更新） | NOT RUN（需在 Mac 实机） |
+| 学校采集、手机导入 | NOT RUN；本版未改采集与导出 |
+
 <a id="acceptance-rc19"></a>
 ## rc19 双平台候选版（2026-09-30）
 
