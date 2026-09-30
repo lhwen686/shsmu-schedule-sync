@@ -5,7 +5,7 @@
 
 2026-09-30，用户要求把 rc18 Mac 未测部分实测，并解决所有非本人操作的问题。基线公开 main `68e73f7729e5c8c9bb21aa92b6740d1b8d1f9144`（rc18 源码，main 在 tag 之后仅改验收文档），分支 `fix/mac-update-tls-and-tabs`，无既有未提交改动。本机：Apple 芯片、macOS 27.0，未安装 python.org Python。
 
-**BUG-010 Mac 应用内更新全部失败。** 实机：rc17、rc18 APP（Tk 8.6.16、python.org 3.12.10 构建）启动后自动检查静默失败，诊断事件 `update_check_failed`；键盘触发“检查更新”弹出“暂时无法连接更新服务器，请检查网络后再试。（URLError）”。同机网络正常：源码 `updater` 分别经 COS、GitHub 读取签名清单并下载 rc18 Mac ZIP，均与附件 SHA-256 一致。根因：包内 `libcrypto` 的 `OPENSSLDIR` 为 `/Library/Frameworks/Python.framework/Versions/3.12/etc/openssl`，学生 Mac 没有该目录，APP 也不带 `certifi`，证书校验必然失败；发布机装有 python.org Python，所以冻结自检和发布门禁都没发现。对照：同一 rc17 仅加 `SSL_CERT_FILE=/etc/ssl/cert.pem` 启动即记录 `update_available`，确认后下载到“下载”文件夹，文件与 rc18 附件逐字节相同。源码复现：`SSL_CERT_FILE`/`SSL_CERT_DIR` 指向不存在路径后，`fetch_release()` 给出与 APP 相同的错误。
+**BUG-010 Mac 应用内更新全部失败。** 实机：rc17、rc18 APP（发布后对照 rc16 同样失败，缺陷自带更新功能的第一版起存在）（Tk 8.6.16、python.org 3.12.10 构建）启动后自动检查静默失败，诊断事件 `update_check_failed`；键盘触发“检查更新”弹出“暂时无法连接更新服务器，请检查网络后再试。（URLError）”。同机网络正常：源码 `updater` 分别经 COS、GitHub 读取签名清单并下载 rc18 Mac ZIP，均与附件 SHA-256 一致。根因：包内 `libcrypto` 的 `OPENSSLDIR` 为 `/Library/Frameworks/Python.framework/Versions/3.12/etc/openssl`，学生 Mac 没有该目录，APP 也不带 `certifi`，证书校验必然失败；发布机装有 python.org Python，所以冻结自检和发布门禁都没发现。对照：同一 rc17 仅加 `SSL_CERT_FILE=/etc/ssl/cert.pem` 启动即记录 `update_available`，确认后下载到“下载”文件夹，文件与 rc18 附件逐字节相同。源码复现：`SSL_CERT_FILE`/`SSL_CERT_DIR` 指向不存在路径后，`fetch_release()` 给出与 APP 相同的错误。
 
 修复：`updater.https_context()` 在 macOS 额外加载系统自带的 `/etc/ssl/cert.pem`，证书与主机名校验保持开启；证书失败单独提示“无法验证更新服务器的安全证书……”，不再误导为网络问题。冻结自检记录 `update_ca_certificates`，Mac 为 0 时失败；`native_package_check` 在 Mac 上隐藏 OpenSSL 默认路径后运行自检，模拟学生 Mac。新增 `macos-checks.yml`：每个 PR 在 macOS 15、Python 3.12.10 上跑完整检查、原生构建和包检查，不发布。改后同条件读取到 rc18；expired / wrong.host / self-signed 测试站仍被拒绝。rc17、rc18 的 Mac 用户需手动下载修复版一次。
 
@@ -23,6 +23,7 @@
 | 本机 Tk 8.6.14 全部 Python 用例（PNG 替代 ImageTk） | 279 项：277 PASS、1 SKIP、1 FAIL；该 FAIL 为子进程未加载替代层导致 ImageTk 报错，未改动的 main 同样失败，属本机测试环境 |
 | Mac 原生构建与冻结自检（Tk 8.6.16） | 由 `macos-checks.yml` 在 PR 上运行，结果见 PR |
 | 学校采集、手机导入、鼠标点击标签 | NOT RUN（需本人；本机桌面拦截鼠标点击） |
+| rc19 发布后实机（冻结 APP） | 检查更新 PASS、标签切换 PASS、冻结自检 PASS；COS 回读步骤网络重置但本机回读全部一致，见 [rc19 验收](STUDENT_ACCEPTANCE.md#acceptance-rc19)；[发布工作流](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36601776770) |
 
 回滚：还原本分支提交即可，不涉及数据格式、UID 或书签；书签仍为 `2026-09-29.19`。
 

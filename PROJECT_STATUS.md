@@ -1,10 +1,10 @@
 # 项目状态
 
 <a id="baseline"></a>
-## rc19 双平台预发布（准备中，2026-09-30）
+## rc19 双平台预发布（2026-09-30）
 
 发布分支 `codex/release-rc19` 基于合并 PR #17 后的 main。应用 `1.0.0-rc19`、Mac 修订 13 / 构建号 `19.0`，书签仍为 `2026-09-29.19`。
-包含 BUG-010（Mac 检查更新找不到根证书）与 BUG-011（Tk 8.6 设置页标签空白）修复；Mac 的 rc17、rc18 需手动下载本版一次。结果见 [rc19 验收](STUDENT_ACCEPTANCE.md#acceptance-rc19)。
+包含 BUG-010（Mac 检查更新找不到根证书）与 BUG-011（Tk 8.6 设置页标签空白）修复；Mac 的 rc16–rc18 均需手动下载本版一次（rc16 实测同样失败）。结果见 [rc19 验收](STUDENT_ACCEPTANCE.md#acceptance-rc19)。
 
 ## rc18 双平台预发布（2026-09-29）
 
@@ -14,7 +14,7 @@ rc16 → rc17 实机自动更新已通过；rc17 → rc18 用于验证经 COS �
 
 ## 2026-09-30 Mac 更新证书与标签空白修复（未发布）
 
-rc18 Mac 实测发现两处缺陷并在源码修复：BUG-010 包内 OpenSSL 找不到根证书，rc17、rc18 在学生 Mac 上检查更新全部失败（提示误导为网络问题）；BUG-011 Tk 8.6 下设置页标签切换后内容空白。新增 Mac PR 检查工作流，发布门禁模拟无 python.org Python 的 Mac。需发布新版本后生效；rc17、rc18 的 Mac 用户需手动下载一次。详见 [本次记录](VERIFICATION.md#mac-update-tls-tabs-20260930)。
+rc18 Mac 实测发现两处缺陷并在源码修复：BUG-010 包内 OpenSSL 找不到根证书，rc16–rc18 在学生 Mac 上检查更新全部失败（提示误导为网络问题）；BUG-011 Tk 8.6 下设置页标签切换后内容空白。新增 Mac PR 检查工作流，发布门禁模拟无 python.org Python 的 Mac。已随 rc19 发布；rc16–rc18 的 Mac 用户需手动下载一次。详见 [本次记录](VERIFICATION.md#mac-update-tls-tabs-20260930)。
 
 ## rc17 双平台预发布（2026-09-29）
 
