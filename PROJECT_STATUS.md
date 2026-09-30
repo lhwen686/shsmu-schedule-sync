@@ -1,10 +1,15 @@
 # 项目状态
 
 <a id="baseline"></a>
+## rc20 双平台预发布（2026-09-30）
+
+发布分支 `codex/release-rc20` 基于合并 PR #19 后的 main。应用 `1.0.0-rc20`、Mac 修订 14 / 构建号 `20.0`，书签仍为 `2026-09-29.19`。
+仅包含更新重启保留 `--data-root` 的修复（rc18 → rc19 Windows 实测发现）；采集、界面与导出未改。Mac 的 rc16–rc18 仍需手动下载一次，rc19 起可在助手内更新。结果见 [rc20 验收](STUDENT_ACCEPTANCE.md#acceptance-rc20)。
+
 ## rc19 双平台预发布（2026-09-30）
 
 发布分支 `codex/release-rc19` 基于合并 PR #17 后的 main。应用 `1.0.0-rc19`、Mac 修订 13 / 构建号 `19.0`，书签仍为 `2026-09-29.19`。
-包含 BUG-010（Mac 检查更新找不到根证书）与 BUG-011（Tk 8.6 设置页标签空白）修复；Mac 的 rc16–rc18 均需手动下载本版一次（rc16 实测同样失败）。结果见 [rc19 验收](STUDENT_ACCEPTANCE.md#acceptance-rc19)；Windows 完整检查、EXE 自检与 rc18 → rc19 应用内更新已实机通过，见 [Windows 验证](VERIFICATION.md#rc19-windows-20260930)。main 在 rc19 之后另修复更新重启丢失 `--data-root`（仅影响命令行指定数据目录，未发布）。
+包含 BUG-010（Mac 检查更新找不到根证书）与 BUG-011（Tk 8.6 设置页标签空白）修复；Mac 的 rc16–rc18 均需手动下载本版一次（rc16 实测同样失败）。结果见 [rc19 验收](STUDENT_ACCEPTANCE.md#acceptance-rc19)；Windows 完整检查、EXE 自检与 rc18 → rc19 应用内更新已实机通过，见 [Windows 验证](VERIFICATION.md#rc19-windows-20260930)。更新重启丢失 `--data-root` 在 rc20 修复。
 
 ## rc18 双平台预发布（2026-09-29）
 

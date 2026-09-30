@@ -1,5 +1,17 @@
 # 学生版候选版本验收
 
+<a id="acceptance-rc20"></a>
+## rc20 双平台候选版（2026-09-30）
+
+对象：Windows x64 EXE 与 Apple 芯片 Mac APP；应用 `1.0.0-rc20`、Mac 修订 14、构建号 `20.0`、书签 `2026-09-29.19`。修复更新后重启丢失 `--data-root`，见 [Windows 验证](VERIFICATION.md#rc19-windows-20260930)。
+
+| 项目 | 本版状态 |
+| --- | --- |
+| 双平台完整检查、原生构建、冻结自检、GitHub 与 COS 发布回读 | 待发布工作流 |
+| Windows rc19 → rc20 应用内更新 | NOT RUN |
+| Mac rc19 → rc20 下载更新（首个经 BUG-010 修复后的 Mac 网络更新） | NOT RUN（需在 Mac 实机） |
+| 学校采集、手机导入 | NOT RUN；本版未改采集与导出 |
+
 <a id="acceptance-rc19"></a>
 ## rc19 双平台候选版（2026-09-30）
 
