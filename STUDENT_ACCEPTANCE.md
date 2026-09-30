@@ -1,5 +1,22 @@
 # 学生版候选版本验收
 
+<a id="acceptance-rc19"></a>
+## rc19 双平台候选版（2026-09-30）
+
+对象：Windows x64 EXE 与 Apple 芯片 Mac APP；应用 `1.0.0-rc19`、Mac 修订 13、构建号 `19.0`、书签 `2026-09-29.19`。修复 Mac 检查更新（BUG-010）与设置页标签空白（BUG-011），见 [修复记录](VERIFICATION.md#mac-update-tls-tabs-20260930)。
+
+| 项目 | 本版状态 |
+| --- | --- |
+| 双平台完整检查、原生构建、冻结自检（Mac 隐藏 python.org 证书目录）、GitHub 发布与回读 | PASS：[发布工作流](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36601776770) 两端原生检查、合包校验、创建预发布、逐字节回读与 GitHub 更新通道均通过 |
+| 腾讯云 COS 同步 | 上传完成、工作流回读步骤 FAIL：GitHub 运行机读取上海 COS 时 `curl: (35) Connection reset by peer`。本机逐个回读：v1.0.0-rc19 八个附件与 GitHub 逐字节相同，COS 更新通道 `latest-signed.json` 为 rc19，PASS；未重跑（重跑会因发布已存在而失败） |
+| 本机回下载 | PASS：八个附件 `SHA256SUMS.txt` 全部通过；GitHub 更新通道 `latest.json` / `latest-signed.json` 与发布附件相同；Mac 包内外 SHA256SUMS、签名完整性、版本 `1.0.0-rc19` / 修订 13 / `19.0`，源码指纹与发布分支一致 |
+| Mac 冻结自检（本机，含隐藏 OpenSSL 默认路径） | PASS：两种条件均 PASS，`update_ca_certificates` = 128 |
+| Mac 冻结 APP 检查更新（本机未装 python.org Python） | PASS：启动检查无 `update_check_failed`；键盘触发“检查更新”显示“当前已是最新版本（1.0.0-rc19）” |
+| Mac rc16 检查更新（对照） | FAIL：rc16 同样记录 `update_check_failed`，BUG-010 自 rc16 起存在，Mac 的 rc16–rc18 均需手动下载 rc19 |
+| Mac 设置页标签切换（冻结 APP，Tk 8.6.16，键盘） | PASS：作息时间、文件夹、学期往返切换内容均正常显示，页面不跳动 |
+| Windows rc18 → rc19 应用内更新 | NOT RUN |
+| 学校采集、手机导入、Mac 鼠标点击标签 | NOT RUN；本版未改采集与导出 |
+
 <a id="acceptance-rc18"></a>
 ## rc18 双平台候选版（2026-09-29）
 
