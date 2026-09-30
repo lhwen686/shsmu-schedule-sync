@@ -14,7 +14,9 @@
 | Mac 冻结 APP 检查更新（本机未装 python.org Python） | PASS：启动检查无 `update_check_failed`；键盘触发“检查更新”显示“当前已是最新版本（1.0.0-rc19）” |
 | Mac rc16 检查更新（对照） | FAIL：rc16 同样记录 `update_check_failed`，BUG-010 自 rc16 起存在，Mac 的 rc16–rc18 均需手动下载 rc19 |
 | Mac 设置页标签切换（冻结 APP，Tk 8.6.16，键盘） | PASS：作息时间、文件夹、学期往返切换内容均正常显示，页面不跳动 |
-| Windows rc18 → rc19 应用内更新 | NOT RUN |
+| Windows 完整检查、回下载与 EXE 冻结自检（2026-09-30 本机 Windows 11） | PASS：`check.py` 279 项，269 PASS、10 SKIP（Mac 或符号链接权限）；七个附件 `SHA256SUMS.txt` 一致，包内 EXE 等于清单 `member_sha256`；下载的 EXE `--self-test` 退出 0，rc19、书签 `.19`、`update_ca_certificates` = 84；签名清单验签通过，`fetch_release()` 经 GitHub 读到 rc19。见 [Windows 验证](VERIFICATION.md#rc19-windows-20260930) |
+| Windows rc18 → rc19 应用内更新 | PASS：发布的 rc18 EXE 启动即自动提示 rc19，确认后约 10 秒完成下载、替换与重启；新 EXE 哈希等于清单 `member_sha256`，`.old` 已清理；界面显示 1.0.0-rc19，“检查更新”答复已是最新，对话框居中于助手窗口 |
+| Windows 设置页标签切换（发布的 rc19，鼠标点击） | PASS：学期、作息时间、文件夹往返切换内容正常显示，页面不跳动（BUG-011 的 Mac 处理未影响 Windows） |
 | 学校采集、手机导入、Mac 鼠标点击标签 | NOT RUN；本版未改采集与导出 |
 
 <a id="acceptance-rc18"></a>

@@ -4,7 +4,7 @@
 ## rc19 双平台预发布（2026-09-30）
 
 发布分支 `codex/release-rc19` 基于合并 PR #17 后的 main。应用 `1.0.0-rc19`、Mac 修订 13 / 构建号 `19.0`，书签仍为 `2026-09-29.19`。
-包含 BUG-010（Mac 检查更新找不到根证书）与 BUG-011（Tk 8.6 设置页标签空白）修复；Mac 的 rc16–rc18 均需手动下载本版一次（rc16 实测同样失败）。结果见 [rc19 验收](STUDENT_ACCEPTANCE.md#acceptance-rc19)。
+包含 BUG-010（Mac 检查更新找不到根证书）与 BUG-011（Tk 8.6 设置页标签空白）修复；Mac 的 rc16–rc18 均需手动下载本版一次（rc16 实测同样失败）。结果见 [rc19 验收](STUDENT_ACCEPTANCE.md#acceptance-rc19)；Windows 完整检查、EXE 自检与 rc18 → rc19 应用内更新已实机通过，见 [Windows 验证](VERIFICATION.md#rc19-windows-20260930)。
 
 ## rc18 双平台预发布（2026-09-29）
 

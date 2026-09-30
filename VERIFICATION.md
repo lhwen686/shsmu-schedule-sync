@@ -1,5 +1,22 @@
 # 验证与修复记录
 
+<a id="rc19-windows-20260930"></a>
+## RC19-WINDOWS-20260930：rc19 Windows 实机验证
+
+2026-09-30，用户在 Mac 发布 rc19 后要求在 Windows 上验证。源码为公开 main `27707a71bea8626610cbd61df22dbb2a1dcb33e6`（rc19 发布与 Mac 验收记录），发布标签 `v1.0.0-rc19`。本机 Windows 11 家庭中文版 26200，Python 3.12.6（既有 `.venv-build`），Node 24.19.0。只读验证，未改产品代码。
+
+| 检查 | 结果 |
+| --- | --- |
+| 完整检查 `check.py --python-timeout 1200` | 首次 FAIL：2 个 CMD 用例报“'setup.cmd' is not recognized”。原因是执行环境设置了 `NoDefaultCurrentDirectoryInExePath=1`，`cmd` 不在当前目录查找脚本（最小 `hi.cmd` 复现，清除该变量即恢复），非代码缺陷。清除后重跑退出 0：279 项，269 PASS、10 SKIP（7 项 Mac 专用，含新增 `test_mac_context_has_system_roots_without_python_org_paths`；2 项无符号链接权限；1 项 Aqua 字号），三组 JS PASS，Python 265 秒 |
+| 回下载与哈希 | PASS：`gh release download v1.0.0-rc19` 七个附件与 `SHA256SUMS.txt` 一致；Windows ZIP 内 EXE SHA-256 `fec3d848bb8e9070779988c63273b81d874bbdf0178b94fa3429336e3a4052c4`，等于 `latest.json` 的 `member_sha256` |
+| 下载的 EXE 冻结自检 | PASS：`--data-root <临时> --self-test <报告>` 退出 0，`frozen=true`、`1.0.0-rc19`、书签 `2026-09-29.19`、生成书签 SHA-256 `9d042a54…`、`bundled_bookmark_verified=true`、`update_ca_certificates` = 84、数据位于包外 |
+| 签名清单与真实网络读取（源码） | PASS：`updater.verified_manifest(latest-signed.json)` 通过，版本 rc19；`https_context()` 校验开启（`CERT_REQUIRED`、主机名检查）；`fetch_release()` 默认来源经 GitHub 读到 rc19 Windows 包，哈希与大小一致 |
+| rc18 → rc19 实际应用内更新 | PASS：发布的 rc18 Windows EXE（ZIP 哈希 `50a1921f…` 与 rc18 SHA256SUMS 一致）复制到临时目录后以 `--data-root` 启动，自动弹出“发现新版本 1.0.0-rc19”；确认后约 10 秒完成下载、替换与重启，目录中仅剩新 EXE（`.old` 已清理），哈希等于 `member_sha256`；界面显示 1.0.0-rc19，“检查更新”答复“当前已是最新版本（1.0.0-rc19）”，对话框居中于助手窗口 |
+| 设置页标签切换（rc19，鼠标点击） | PASS：学期、作息时间、文件夹往返切换内容均正常显示，页面不跳动 |
+| 学校采集、手机导入 | NOT RUN：本版未改采集与导出，需本人操作 |
+
+**观察（低影响，未修改）：** `updater.launch()` 重启时只传 EXE 路径，不带原命令行参数。以 `--data-root` 启动的 rc18 更新后，重启的 rc19 打开了默认的 `%LOCALAPPDATA%\SHSMUScheduleAssistant`（维护者本人数据，仅查看首页、设置和检查更新，未修改）。学生双击启动不带参数，不受影响；只影响命令行指定数据目录的使用方式。
+
 <a id="mac-update-tls-tabs-20260930"></a>
 ## MAC-UPDATE-TLS-TABS-20260930：Mac 更新证书（BUG-010）与设置页标签空白（BUG-011）（未发布）
 
