@@ -1,5 +1,19 @@
 # 验证与修复记录
 
+<a id="rc20-mac-20260930"></a>
+## RC20-MAC-20260930：rc20 Mac 实机验证与首次 Mac 网络更新
+
+2026-09-30，用户要求测试 rc20 并写入验收记录。源码为公开 main `3f8d72a8f7059126e23ecc0b0128bea6f7a13a65`（rc20 发布与 Windows 验收记录），发布标签 `v1.0.0-rc20`。本机 Apple 芯片、macOS 27.0，未安装 python.org Python。全部使用临时数据目录，未触及个人课表或本机已安装软件。
+
+| 检查 | 结果 |
+| --- | --- |
+| 完整检查 `check.py`（Python 3.12.14 / Tk 9.0.4） | PASS：退出 0，281 项 280 PASS、1 Windows CMD SKIP；三组 JS PASS |
+| 回下载与 Mac 包 | PASS：rc20 八个文件 `SHA256SUMS.txt` 一致；Mac ZIP 内外校验、签名完整性、arm64、`20.0` / 修订 14、源码指纹与 main 一致；COS Mac ZIP 与 GitHub 相同，COS / GitHub 更新通道均为 rc20 |
+| 下载的 APP 冻结自检 | PASS：正常条件与 `SSL_CERT_FILE` / `SSL_CERT_DIR` 指向不存在路径两种条件均退出 0，rc20、书签 `.19`、根证书 128 张、依赖均在包内 |
+| Mac rc19 → rc20 应用内更新 | PASS：rc19 启动即提示 rc20，确认后经 COS 数秒下载完成，ZIP 与附件逐字节相同；按提示替换后以同一目录打开，设置文件哈希不变，界面 rc20 且“检查更新”答复已是最新；无失败事件。详见 [rc20 验收](STUDENT_ACCEPTANCE.md#acceptance-rc20) |
+| 设置页标签（冻结 APP，键盘） | PASS：三个标签往返切换均正常显示，页面不跳动 |
+| 鼠标点击标签、学校采集、手机导入 | NOT RUN：本机桌面拦截鼠标点击；采集与手机需本人 |
+
 <a id="rc19-windows-20260930"></a>
 ## RC19-WINDOWS-20260930：rc19 Windows 实机验证
 

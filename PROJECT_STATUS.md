@@ -4,7 +4,7 @@
 ## rc20 双平台预发布（2026-09-30）
 
 发布分支 `codex/release-rc20` 基于合并 PR #19 后的 main。应用 `1.0.0-rc20`、Mac 修订 14 / 构建号 `20.0`，书签仍为 `2026-09-29.19`。
-仅包含更新重启保留 `--data-root` 的修复（rc18 → rc19 Windows 实测发现）；采集、界面与导出未改。Mac 的 rc16–rc18 仍需手动下载一次，rc19 起可在助手内更新。结果见 [rc20 验收](STUDENT_ACCEPTANCE.md#acceptance-rc20)。
+仅包含更新重启保留 `--data-root` 的修复（rc18 → rc19 Windows 实测发现）；采集、界面与导出未改。Mac 的 rc16–rc18 仍需手动下载一次，rc19 起可在助手内更新；Mac rc19 → rc20 实际网络更新已在本机通过（[记录](VERIFICATION.md#rc20-mac-20260930)）。结果见 [rc20 验收](STUDENT_ACCEPTANCE.md#acceptance-rc20)。
 
 ## rc19 双平台预发布（2026-09-30）
 
