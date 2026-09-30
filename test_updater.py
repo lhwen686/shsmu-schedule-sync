@@ -300,6 +300,14 @@ class InstallTest(unittest.TestCase):
         with self.assertRaisesRegex(updater.UpdateError, '打包后'):
             updater.install_windows(release, opener=opener_for({}))
 
+    def test_launch_passes_arguments_to_the_new_exe(self):
+        with patch('updater.subprocess.Popen') as popen:
+            updater.launch(self.exe, ['--data-root', Path('D:/课表 数据')])
+            updater.launch(self.exe)
+        self.assertEqual(popen.call_args_list[0].args[0], [str(self.exe), '--data-root', str(Path('D:/课表 数据'))])
+        self.assertEqual(popen.call_args_list[1].args[0], [str(self.exe)])
+        self.assertEqual(popen.call_args_list[0].kwargs['cwd'], str(self.folder))
+
     def test_child_environment_drops_pyinstaller_state(self):
         env = updater.clean_environment({'_PYI_APPLICATION_HOME_DIR': 'x', '_MEIPASS2': 'y',
                                           'TCL_LIBRARY': 'z', 'PATH': 'p'})

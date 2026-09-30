@@ -75,6 +75,8 @@ class AssistantWindow:
         self.window = window
         self.base = default_data_root()
         self.preference_path = self.base / 'preferences.json'
+        # The restart after an update runs from the EXE folder, so keep an explicit root absolute.
+        self.explicit_root = Path(data_root).absolute() if data_root else None
         selected, self.recovery_issue = select_data_root(self.base, data_root)
         self.service = DesktopService(selected, recovery_issue=self.recovery_issue,
                                       diagnostics_root=self.base if self.recovery_issue else None)
@@ -294,6 +296,10 @@ class AssistantWindow:
             return
         self.install_update(release)
 
+    def restart_arguments(self):
+        """Reopen the updated EXE on the data root it was started with; preferences cover the rest."""
+        return ['--data-root', str(self.explicit_root)] if self.explicit_root else []
+
     def install_update(self, release):
         self.update_busy = True
         dialog = self.dialog('正在更新', 480, 200, minimum=(1, 1))
@@ -336,7 +342,7 @@ class AssistantWindow:
             if sys.platform == 'win32':
                 executable, old = value
                 try:
-                    updater.launch(executable)
+                    updater.launch(executable, self.restart_arguments())
                 except OSError:
                     updater.restore_exe(executable, old)
                     messagebox.showerror('更新未完成', '新版本无法启动，已恢复原版本。', parent=self.window)
