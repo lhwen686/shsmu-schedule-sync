@@ -10,7 +10,10 @@
 | 双平台完整检查、原生构建、冻结自检、GitHub 与 COS 发布回读 | PASS：[发布工作流](https://github.com/lhwen686/shsmu-schedule-sync/actions/runs/36656370723) 四个作业全部通过（含 COS 同步与回读）；[rc20 预发布](https://github.com/lhwen686/shsmu-schedule-sync/releases/tag/v1.0.0-rc20) 对应源码 `191f8ed0d4b9b12b44871f4301d98f8b8d6bd0cb`；Mac 冻结自检 `update_ca_certificates` = 128 |
 | 本机回下载（2026-09-30 Windows 11） | PASS：七个附件与 `SHA256SUMS.txt` 一致；v1.0.0-rc20 八个文件经 COS 匿名读取与 GitHub 逐字节相同；COS 与 GitHub 更新通道 `latest-signed.json` 均与发布附件相同；包内 EXE SHA-256 `07c3efb9d90445b1f2fddf4b079a415bffe04b0ed9dc8eb2d971e71d18d3f718` 等于清单 `member_sha256`；下载的 EXE `--self-test` 退出 0，rc20、书签 `.19`、根证书 84 张 |
 | Windows rc19 → rc20 应用内更新 | PASS：发布的 rc19 EXE（`LOCALAPPDATA` 指向临时目录，未触及个人数据）启动即提示 rc20 并显示新版说明，确认后约 10 秒完成下载、替换与重启；新 EXE 哈希等于清单值，`.old` 已清理；界面显示 1.0.0-rc20，“检查更新”答复已是最新。重启由旧版 rc19 执行，`--data-root` 保留需 rc20 → 下一版本验证 |
-| Mac rc19 → rc20 下载更新（首个经 BUG-010 修复后的 Mac 网络更新） | NOT RUN（需在 Mac 实机） |
+| Mac rc19 → rc20 下载更新（首个经 BUG-010 修复后的 Mac 网络更新；2026-09-30 Apple 芯片 macOS 27.0，未装 python.org Python） | PASS：发布的 rc19 APP（临时 `--data-root`）启动即记录 `update_available` 并提示 rc20（版本、21.5 MB、新版说明，文案为“确认后下载……”）；确认后数秒经 COS 下载完成，记录 `update_downloaded`，进度窗口在当前桌面居中，随后显示“已保存到 …/Downloads/SHSMU-Schedule-Assistant-1.0.0-rc20-Mac-arm64.zip”及三步替换说明；下载的 ZIP 与 rc20 附件逐字节相同。解压后的 APP 签名校验通过，放入临时目录代替“应用程序”（未改动本机已装软件），以同一目录打开：`config.local.json` SHA-256 与 rc19 时相同、显示学期不变，界面 1.0.0-rc20，“检查更新”答复已是最新；全过程无失败事件。退出旧版的 Command+Q 被测试工具拦截，改用应用菜单退出 |
+| Mac 包与冻结自检（本机回下载） | PASS：Mac ZIP 内外 `SHA256SUMS.txt` 全部通过（APP 1052 项）、签名完整性通过、arm64、构建号 `20.0`、修订 14，源码指纹与 main 一致；COS 上 Mac ZIP 与 GitHub 相同，COS 与 GitHub 更新通道均为 rc20；冻结自检在正常条件与隐藏 OpenSSL 默认路径两种条件下均 PASS，`update_ca_certificates` = 128 |
+| Mac 设置页标签切换（冻结 APP，Tk 8.6.16，键盘） | PASS：作息时间、文件夹、学期往返切换内容均正常显示，页面不跳动；鼠标点击因本机桌面拦截点击 NOT RUN |
+| Mac 更新重启保留 `--data-root` | 不适用：Mac 下载 ZIP 后由用户手动替换，助手不自动重启 |
 | 学校采集、手机导入 | NOT RUN；本版未改采集与导出 |
 
 <a id="acceptance-rc19"></a>
