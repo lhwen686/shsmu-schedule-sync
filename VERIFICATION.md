@@ -15,7 +15,7 @@
 | 设置页标签切换（rc19，鼠标点击） | PASS：学期、作息时间、文件夹往返切换内容均正常显示，页面不跳动 |
 | 学校采集、手机导入 | NOT RUN：本版未改采集与导出，需本人操作 |
 
-**观察（低影响，未修改）：** `updater.launch()` 重启时只传 EXE 路径，不带原命令行参数。以 `--data-root` 启动的 rc18 更新后，重启的 rc19 打开了默认的 `%LOCALAPPDATA%\SHSMUScheduleAssistant`（维护者本人数据，仅查看首页、设置和检查更新，未修改）。学生双击启动不带参数，不受影响；只影响命令行指定数据目录的使用方式。
+**发现并修复（未发布）：更新后重启丢失 `--data-root`。** `updater.launch()` 重启时只传 EXE 路径。以 `--data-root` 启动的 rc18 更新后，重启的 rc19 打开了默认的 `%LOCALAPPDATA%\SHSMUScheduleAssistant`（维护者本人数据，仅查看首页、设置和检查更新，未修改）。学生双击启动不带参数，在设置中更换的文件夹由 `preferences.json` 记住，均不受影响；只影响命令行指定数据目录的维护与验收方式。修复：`launch(executable, arguments)` 把参数传给新 EXE；`AssistantWindow` 记住显式传入的数据目录（转为绝对路径，因为重启的工作目录是 EXE 所在文件夹），`restart_arguments()` 在更新重启时带上 `--data-root`，未显式指定时不加参数。新增回归：`test_updater.test_launch_passes_arguments_to_the_new_exe`、`test_desktop_theme.test_update_restart_keeps_an_explicit_data_root`。改后 Windows 完整检查退出 0：281 项，271 PASS、10 SKIP，三组 JS PASS。打包 EXE 间的实际更新需下一版本发布后验证（NOT RUN）。
 
 <a id="mac-update-tls-tabs-20260930"></a>
 ## MAC-UPDATE-TLS-TABS-20260930：Mac 更新证书（BUG-010）与设置页标签空白（BUG-011）（未发布）

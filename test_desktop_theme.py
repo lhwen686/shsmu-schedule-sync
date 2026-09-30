@@ -40,6 +40,11 @@ class MedicalThemeTests(unittest.TestCase):
     def checks(self):
         return [w for w in walk_widgets(self.ui.content) if isinstance(w,ttk.Checkbutton)]
 
+    def test_update_restart_keeps_an_explicit_data_root(self):
+        self.assertEqual(self.ui.restart_arguments(),['--data-root',str((self.root/'data').absolute())])
+        self.ui.explicit_root=None
+        self.assertEqual(self.ui.restart_arguments(),[])
+
     def test_theme_is_fingerprinted_and_uses_one_pixel_conversion(self):
         from build_desktop import BUILD_INPUTS, source_fingerprint
         self.assertIn('desktop_theme.py',BUILD_INPUTS)

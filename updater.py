@@ -350,11 +350,11 @@ def clean_environment(environ=None):
     return environ
 
 
-def launch(executable):
+def launch(executable, arguments=()):
     flags = 0
     if os.name == 'nt':
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    return subprocess.Popen([str(executable)], cwd=str(Path(executable).parent), close_fds=True,
+    return subprocess.Popen([str(executable), *map(str, arguments)], cwd=str(Path(executable).parent), close_fds=True,
                             creationflags=flags, env=clean_environment())
 
 
